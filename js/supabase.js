@@ -469,18 +469,10 @@ const DataService = {
         courses.forEach(c => { courseMap[c.id] = c; });
       }
 
-      // Get trainer names
-      const trainerIds = [...new Set(levels.map(l => l.trainer_id).filter(Boolean))];
-      let trainerMap = {};
-      if (trainerIds.length > 0) {
-        const trainers = await sbGet(
-          `trainers?id=in.(${trainerIds.join(',')})&select=id,full_name,phone,email,status`,
-          token
-        ).catch(() => []);
-        trainers.forEach(t => { trainerMap[t.id] = t; });
-      }
+      // Fetch ALL trainers per level via trainer_sessions junction table
+      const trainersByLevel = await this._fetchTrainersByLevel(levelIds, token);
 
-      return levels.map(l => this._mapLevel(l, courseMap[l.course_id], trainerMap[l.trainer_id]));
+      return levels.map(l => this._mapLevel(l, courseMap[l.course_id], trainersByLevel[l.id] || []));
     } catch (e) {
       console.error('[DataService] getKidClasses error:', e);
       return [];
@@ -515,19 +507,15 @@ const DataService = {
         courses.forEach(c => { courseMap[c.id] = c; });
       }
 
-      const trainerIds = [...new Set(levels.map(l => l.trainer_id).filter(Boolean))];
-      let trainerMap = {};
-      if (trainerIds.length) {
-        const trainers = await sbGet(`trainers?id=in.(${trainerIds.join(',')})&select=id,full_name`, token).catch(() => []);
-        trainers.forEach(t => { trainerMap[t.id] = t; });
-      }
+      // Fetch ALL trainers per level via trainer_sessions junction table
+      const trainersByLevel = await this._fetchTrainersByLevel(levelIds, token);
 
       // Enrich each level with which kid it belongs to
       const enrollMap = {};
       enrollments.forEach(e => { enrollMap[e.level_id] = enrollMap[e.level_id] || []; enrollMap[e.level_id].push(e.student_id); });
 
       return levels.map(l => ({
-        ...this._mapLevel(l, courseMap[l.course_id], trainerMap[l.trainer_id]),
+        ...this._mapLevel(l, courseMap[l.course_id], trainersByLevel[l.id] || []),
         kidIds: enrollMap[l.id] || []
       }));
     } catch (e) {
@@ -546,12 +534,12 @@ const DataService = {
       if (!rows || !rows[0]) return null;
       const l = rows[0];
 
-      const [courses, trainers] = await Promise.all([
+      const [courses, trainersByLevel] = await Promise.all([
         l.course_id ? sbGet(`courses?id=eq.${l.course_id}&select=id,name,image_url`, token).catch(() => []) : [],
-        l.trainer_id ? sbGet(`trainers?id=eq.${l.trainer_id}&select=id,full_name,phone,email`, token).catch(() => []) : []
+        this._fetchTrainersByLevel([classId], token)
       ]);
 
-      return this._mapLevel(l, courses[0], trainers[0]);
+      return this._mapLevel(l, courses[0], trainersByLevel[classId] || []);
     } catch (e) { return null; }
   },
 
@@ -559,38 +547,60 @@ const DataService = {
   async getAllTrainers() {
     const token = AuthService.getToken();
     try {
-      // Fetch trainers with all new columns
+      // Fetch trainers with all columns
       const rows = await sbGet(
-        `trainers?select=id,full_name,phone,email,status,created_at,title,start_year,start_date,description,avatar_url&limit=50`,
+        `trainers?select=id,full_name,phone,email,status,created_at,title,start_year,start_date,description,avatar_url,rating&limit=50`,
         token
       ).catch(() => []);
       if (!rows || !rows.length) return [];
 
-      // For each trainer, count students enrolled in their levels
+      // Use trainer_assignments to find all levels per trainer (supports multi-assignment)
       const trainerIds = rows.map(r => r.id);
       let studentCountMap = {};
       try {
-        // Get all levels for these trainers
-        const allLevels = await sbGet(
+        const assignments = await sbGet(
+          `trainer_assignments?trainer_id=in.(${trainerIds.join(',')})&select=trainer_id,level_id`,
+          token
+        ).catch(() => []);
+
+        // Build trainerIds → [levelIds] map
+        const trainerLevels = {};
+        assignments.forEach(a => {
+          if (!trainerLevels[a.trainer_id]) trainerLevels[a.trainer_id] = [];
+          trainerLevels[a.trainer_id].push(a.level_id);
+        });
+
+        // Also include levels.trainer_id (fallback for levels not in trainer_assignments)
+        const fbLevels = await sbGet(
           `levels?trainer_id=in.(${trainerIds.join(',')})&select=id,trainer_id`,
           token
         ).catch(() => []);
-        const levelIds = allLevels.map(l => l.id);
-        if (levelIds.length > 0) {
-          // Count active enrollments per level
+        fbLevels.forEach(l => {
+          if (!trainerLevels[l.trainer_id]) trainerLevels[l.trainer_id] = [];
+          if (!trainerLevels[l.trainer_id].includes(l.id)) trainerLevels[l.trainer_id].push(l.id);
+        });
+
+        // Count unique active students per trainer
+        const allLevelIds = [...new Set(Object.values(trainerLevels).flat())];
+        if (allLevelIds.length > 0) {
           const enrollments = await sbGet(
-            `enrollments?level_id=in.(${levelIds.join(',')})&status=eq.active&select=id,level_id,student_id`,
+            `enrollments?level_id=in.(${allLevelIds.join(',')})&status=eq.active&select=level_id,student_id`,
             token
           ).catch(() => []);
-          // Build trainer → unique students map
-          const levelTrainerMap = {};
-          allLevels.forEach(l => { levelTrainerMap[l.id] = l.trainer_id; });
+          // Build level → trainers map for counting
+          const levelToTrainers = {};
+          Object.entries(trainerLevels).forEach(([tid, lids]) => {
+            lids.forEach(lid => {
+              if (!levelToTrainers[lid]) levelToTrainers[lid] = [];
+              if (!levelToTrainers[lid].includes(tid)) levelToTrainers[lid].push(tid);
+            });
+          });
           const trainerStudents = {};
           enrollments.forEach(e => {
-            const tid = levelTrainerMap[e.level_id];
-            if (!tid) return;
-            if (!trainerStudents[tid]) trainerStudents[tid] = new Set();
-            trainerStudents[tid].add(e.student_id);
+            (levelToTrainers[e.level_id] || []).forEach(tid => {
+              if (!trainerStudents[tid]) trainerStudents[tid] = new Set();
+              trainerStudents[tid].add(e.student_id);
+            });
           });
           trainerIds.forEach(tid => {
             studentCountMap[tid] = trainerStudents[tid] ? trainerStudents[tid].size : 0;
@@ -610,24 +620,39 @@ const DataService = {
     const token = AuthService.getToken();
     try {
       const rows = await sbGet(
-        `trainers?id=eq.${trainerId}&select=id,full_name,phone,email,status,created_at,title,start_year,start_date,description,avatar_url`,
+        `trainers?id=eq.${trainerId}&select=id,full_name,phone,email,status,created_at,title,start_year,start_date,description,avatar_url,rating`,
         token
       );
       if (!rows || !rows[0]) return null;
 
-      // Get levels (classes) for this trainer
-      const levels = await sbGet(
-        `levels?trainer_id=eq.${trainerId}&select=id,name,course_id,day_of_week,start_time`,
-        token
-      ).catch(() => []);
+      // Get ALL levels for this trainer via trainer_assignments + fallback levels.trainer_id
+      const [assignments, fbLevels] = await Promise.all([
+        sbGet(`trainer_assignments?trainer_id=eq.${trainerId}&select=level_id`, token).catch(() => []),
+        sbGet(`levels?trainer_id=eq.${trainerId}&select=id,name,course_id,day_of_week,start_time`, token).catch(() => [])
+      ]);
+
+      // Merge level IDs from both sources
+      const assignedLevelIds = (assignments || []).map(a => a.level_id).filter(Boolean);
+      const fbLevelIds = (fbLevels || []).map(l => l.id);
+      const allLevelIds = [...new Set([...assignedLevelIds, ...fbLevelIds])];
+
+      // Fetch full level objects for assigned levels not already in fbLevels
+      const newIds = assignedLevelIds.filter(id => !fbLevelIds.includes(id));
+      let extraLevels = [];
+      if (newIds.length > 0) {
+        extraLevels = await sbGet(
+          `levels?id=in.(${newIds.join(',')})&select=id,name,course_id,day_of_week,start_time`,
+          token
+        ).catch(() => []);
+      }
+      const levels = [...(fbLevels || []), ...extraLevels];
 
       // Count unique students enrolled in trainer's levels
       let studentCount = 0;
       try {
-        const levelIds = levels.map(l => l.id);
-        if (levelIds.length > 0) {
+        if (allLevelIds.length > 0) {
           const enrollments = await sbGet(
-            `enrollments?level_id=in.(${levelIds.join(',')})&status=eq.active&select=student_id`,
+            `enrollments?level_id=in.(${allLevelIds.join(',')})&status=eq.active&select=student_id`,
             token
           ).catch(() => []);
           studentCount = new Set(enrollments.map(e => e.student_id)).size;
@@ -656,7 +681,7 @@ const DataService = {
       let pkg = null;
       if (alloc.package_id) {
         const pkgs = await sbGet(
-          `packages?id=eq.${alloc.package_id}&select=id,name,description,status`,
+          `packages?id=eq.${alloc.package_id}&select=id,name,description,status,price,sessions_per_month`,
           token
         ).catch(() => []);
         pkg = pkgs[0] || null;
@@ -694,7 +719,7 @@ const DataService = {
       let pkgMap = {};
       if (pkgIds.length) {
         const pkgs = await sbGet(
-          `packages?id=in.(${pkgIds.join(',')})&select=id,name,description,status`,
+          `packages?id=in.(${pkgIds.join(',')})&select=id,name,description,status,price,sessions_per_month`,
           token
         ).catch(() => []);
         pkgs.forEach(p => { pkgMap[p.id] = p; });
@@ -722,7 +747,7 @@ const DataService = {
       let pkgMap = {};
       if (pkgIds.length) {
         const pkgs = await sbGet(
-          `packages?id=in.(${pkgIds.join(',')})&select=id,name,description,status`,
+          `packages?id=in.(${pkgIds.join(',')})&select=id,name,description,status,price,sessions_per_month`,
           token
         ).catch(() => []);
         pkgs.forEach(p => { pkgMap[p.id] = p; });
@@ -741,20 +766,73 @@ const DataService = {
   async getPackages() {
     const token = AuthService.getToken();
     try {
+      // Fetch active packages with correct column names from DB schema
       const rows = await sbGet(
-        `packages?select=id,name,description,status,created_at&order=created_at.asc`,
+        `packages?select=id,name,duration_months,base_price,default_discount,description,status&status=eq.active&order=base_price.asc`,
         token
       ).catch(() => []);
-      return (rows || []).map((p, i) => ({
-        id:      p.id,
-        name:    p.name || `Package ${i+1}`,
-        description: p.description || '',
-        price:   null, // price field not found in schema — may be in description or other field
-        popular: i === 1,
-        features: p.description ? p.description.split('\n').filter(f => f.trim()) : [],
-        status:  p.status
-      }));
-    } catch (e) { return []; }
+      if (!rows || !rows.length) return [];
+
+      // Fetch which courses each package includes (package_courses → courses)
+      const pkgIds = rows.map(r => r.id);
+      let coursesByPkg = {};
+      try {
+        const pcRows = await sbGet(
+          `package_courses?package_id=in.(${pkgIds.join(',')})&select=package_id,courses(id,name,status)`,
+          token
+        ).catch(() => []);
+        (pcRows || []).forEach(pc => {
+          if (!coursesByPkg[pc.package_id]) coursesByPkg[pc.package_id] = [];
+          if (pc.courses && pc.courses.name) {
+            coursesByPkg[pc.package_id].push(pc.courses.name);
+          }
+        });
+      } catch(_) {}
+
+      return rows.map((p, i) => {
+        const basePrice      = p.base_price      ?? null;
+        const discountPct    = p.default_discount ?? 0;
+        // Effective price after default discount
+        const effectivePrice = basePrice != null
+          ? Math.round(basePrice * (1 - discountPct / 100) * 100) / 100
+          : null;
+
+        // Build feature list from description lines + included courses
+        const descFeatures = p.description
+          ? p.description.split('\n').map(f => f.trim()).filter(Boolean)
+          : [];
+        const courseNames = coursesByPkg[p.id] || [];
+
+        return {
+          id:              p.id,
+          name:            p.name || `Package ${i + 1}`,
+          description:     p.description || '',
+          durationMonths:  p.duration_months || 1,
+          basePrice:       basePrice,
+          discountPct:     discountPct,
+          price:           effectivePrice,           // effective price shown to parent
+          popular:         false,                    // no 'most popular' highlight
+          features:        descFeatures,             // from description field
+          courses:         courseNames,              // included courses
+          status:          p.status
+        };
+      });
+    } catch (e) {
+      console.error('[DataService] getPackages error:', e);
+      return [];
+    }
+  },
+
+  async getLevelEnrolledCount(levelId) {
+    if (!levelId) return 0;
+    const token = AuthService.getToken();
+    try {
+      const rows = await sbGet(
+        `enrollments?level_id=eq.${levelId}&status=eq.active&select=id`,
+        token
+      ).catch(() => []);
+      return (rows || []).length;
+    } catch (e) { return 0; }
   },
 
   // ── LEVEL PROGRESS ────────────────────────────────────────────
@@ -931,7 +1009,7 @@ const DataService = {
       subscriptionId:   u.id, // use student id to look up allocation
       status:           u.status || 'active',
       joinDate:         u.created_at,
-      branch:           'Mind\'s Craft Academy',
+      branch:           'Minds\' Craft Center',
       notes:            u.notes || ''
     };
   },
@@ -964,14 +1042,80 @@ const DataService = {
       classes:        levels.map(l => l.name || 'Class'),
       studentCount:   studentCount,
       sinceDate:      sinceDate,               // Since field (start_date or start_year)
-      branch:         'Mind\'s Craft Academy',
+      branch:         'Minds\' Craft Center',
       email:          t.email || '',
       phone:          t.phone || '',
       status:         t.status
     };
   },
 
-  _mapLevel(l, course, trainer) {
+  // ── Fetch ALL trainers for a set of level IDs via trainer_assignments junction table.
+  // trainer_assignments: { id, trainer_id, level_id, created_at }
+  // Falls back to levels.trainer_id for levels not in trainer_assignments.
+  // Returns: { [levelId]: [{id, full_name}, …] }
+  async _fetchTrainersByLevel(levelIds, token) {
+    if (!levelIds || levelIds.length === 0) return {};
+    const map = {};
+
+    const add = (levelId, trainer) => {
+      if (!levelId || !trainer || !trainer.id) return;
+      if (!map[levelId]) map[levelId] = [];
+      if (!map[levelId].find(x => x.id === trainer.id)) {
+        map[levelId].push({ id: trainer.id, full_name: (trainer.full_name || '').trim() });
+      }
+    };
+
+    try {
+      // ── Primary: trainer_assignments junction table ──────────────────────────────
+      // Fetch all assignments for the given level IDs, embedding trainer name
+      const assignments = await sbGet(
+        `trainer_assignments?level_id=in.(${levelIds.join(',')})&select=level_id,trainer_id,trainers(id,full_name)`,
+        token
+      ).catch(() => []);
+
+      if (Array.isArray(assignments) && assignments.length > 0) {
+        assignments.forEach(row => {
+          if (row.trainers) add(row.level_id, row.trainers);
+        });
+        console.log('[Trainers] trainer_assignments:', assignments.length, 'rows →',
+          Object.fromEntries(Object.entries(map).map(([k,v])=>[k, v.map(t=>t.full_name)])));
+      } else {
+        console.log('[Trainers] trainer_assignments: 0 rows for these levels');
+      }
+
+      // ── Fallback: levels.trainer_id for levels with no assignment rows ───────────
+      const missing = levelIds.filter(id => !map[id] || map[id].length === 0);
+      if (missing.length > 0) {
+        const levelRows = await sbGet(
+          `levels?id=in.(${missing.join(',')})&select=id,trainer_id`,
+          token
+        ).catch(() => []);
+        const fbIds = [...new Set((levelRows || []).map(l => l.trainer_id).filter(Boolean))];
+        if (fbIds.length > 0) {
+          const trainerRows = await sbGet(
+            `trainers?id=in.(${fbIds.join(',')})&select=id,full_name`,
+            token
+          ).catch(() => []);
+          const tmap = {};
+          trainerRows.forEach(t => { tmap[t.id] = t; });
+          levelRows.forEach(l => {
+            if (l.trainer_id && tmap[l.trainer_id]) add(l.id, tmap[l.trainer_id]);
+          });
+          console.log('[Trainers] levels.trainer_id fallback for', missing.length, 'levels');
+        }
+      }
+
+    } catch (e) {
+      console.warn('[Trainers] _fetchTrainersByLevel error:', e.message);
+    }
+
+    console.log('[Trainers] Final map:',
+      JSON.stringify(Object.fromEntries(Object.entries(map).map(([k,v])=>[k, v.map(t=>t.full_name)]))));
+    return map;
+  },
+
+  // trainers param can be a single trainer object OR an array of trainer objects
+  _mapLevel(l, course, trainers) {
     const dayMap = {
       0:'Sunday',1:'Monday',2:'Tuesday',3:'Wednesday',4:'Thursday',5:'Friday',6:'Saturday',
       'monday':'Monday','tuesday':'Tuesday','wednesday':'Wednesday',
@@ -988,7 +1132,6 @@ const DataService = {
     if (dayName && dayName !== 'TBD') {
       const dayIndex = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].indexOf(dayName);
       if (dayIndex >= 0) {
-        // If today IS the class day, show today (not next week)
         const diff = (dayIndex - today.getDay() + 7) % 7;
         nextSession = new Date(today);
         nextSession.setDate(today.getDate() + diff);
@@ -996,17 +1139,36 @@ const DataService = {
       }
     }
 
+    // Normalise trainers into an array — filter out any blank names
+    let trainerArr = [];
+    if (Array.isArray(trainers)) {
+      trainerArr = trainers.filter(t => t && t.id);
+    } else if (trainers && trainers.id) {
+      trainerArr = [trainers];
+    }
+
+    // Primary trainer (for backwards compat)
+    const primaryTrainer = trainerArr[0] || null;
+
+    // Build display string — only include trainers with a real name
+    const namedTrainers = trainerArr.filter(t => t.full_name && t.full_name.trim() !== '');
+    const trainerNamesStr = namedTrainers.length > 0
+      ? namedTrainers.map(t => t.full_name.trim()).join(', ')
+      : '—';
+
     return {
       id:              l.id,
       name:            l.name || 'Class',
       type:            course?.name || 'Group Class',
-      trainerId:       l.trainer_id,
-      trainerName:     trainer?.full_name || '—',
+      trainerId:       primaryTrainer?.id   || l.trainer_id || null,
+      trainerName:     primaryTrainer?.full_name?.trim() || '—',
+      trainers:        trainerArr,                          // full list [{id, full_name}, …]
+      trainerNames:    trainerNamesStr,
       days:            [dayName],
       time:            l.start_time ? l.start_time.substring(0,5) : 'TBD',
       duration:        l.start_time && l.end_time ? this._calcDuration(l.start_time, l.end_time) : '—',
-      location:        'Mind\'s Craft Academy',
-      branch:          'Main Campus',
+      location:        'Minds\' Craft Center',
+      branch:          'Minds\' Craft Center',
       capacity:        l.capacity || 0,
       enrolled:        0,
       status:          l.status || 'active',
@@ -1063,17 +1225,34 @@ const DataService = {
     const isExpired  = daysLeft < 0 || a.status === 'expired';  // strictly past end date
     const isExpiring = !isExpired && daysLeft <= 7;
 
-    // Read sessions from DB columns (try several possible column names)
-    const sessTotal = a.sessions_total ?? a.total_sessions ?? a.session_count ?? 8;
-    const sessUsed  = a.sessions_used  ?? a.used_sessions  ?? a.attended_sessions ?? 0;
-    const sessLeft  = a.sessions_left  ?? a.remaining_sessions ?? Math.max(0, sessTotal - sessUsed);
+    // Sessions — student_allocations has no sessions columns; leave as 0
+    const sessTotal = 0;
+    const sessUsed  = 0;
+    const sessLeft  = 0;
+
+    // Price — use price_paid from the allocation (what the parent actually paid),
+    // fall back to pkg.base_price × (1 - discount_pct/100) if price_paid is absent
+    const discountPct = a.discount_pct ?? pkg?.default_discount ?? 0;
+    const pricePaid   = a.price_paid   ?? null;
+    const pkgBase     = pkg?.base_price ?? null;
+    const rawPrice = pricePaid != null
+      ? pricePaid
+      : pkgBase != null
+        ? Math.round(pkgBase * (1 - discountPct / 100) * 100) / 100
+        : null;
+
+    // Duration label from package
+    const durMonths = pkg?.duration_months ?? null;
+    const planLabel = durMonths
+      ? (durMonths === 1 ? 'Monthly' : durMonths === 3 ? 'Quarterly' : durMonths === 12 ? 'Annual' : `${durMonths}-month`)
+      : (pkg?.description || '—');
 
     return {
       id:            a.id,
       kidId:         a.student_id,
       kidName:       kidName || 'Student',
-      packageName:   pkg?.name || a.package_name || 'Training Package',
-      plan:          pkg?.description || a.plan || 'Monthly Plan',
+      packageName:   pkg?.name || 'Training Package',
+      plan:          planLabel,
       startDate:     startDate || new Date().toISOString().split('T')[0],
       expiryDate:    endDate   || expiry.toISOString().split('T')[0],
       sessionsTotal: sessTotal,
@@ -1081,9 +1260,10 @@ const DataService = {
       sessionsLeft:  sessLeft,
       status:        isExpired ? 'expired' : isExpiring ? 'warning' : 'active',
       autoRenew:     a.auto_renew ?? false,
-      price:         a.price || '—',
+      price:         rawPrice,
+      discountPct:   discountPct,
       daysLeft:      daysLeftClamped,
-      courseId:      a.course_id || a.level_id || null,
+      courseId:      a.course_id || null,
       courseName:    a.course_name || pkg?.name || null,
     };
   },
@@ -1099,7 +1279,7 @@ const DataService = {
       title:       e.title || 'Event',
       date:        e.created_at ? e.created_at.split('T')[0] : new Date().toISOString().split('T')[0],
       time:        '—',
-      location:    'Mind\'s Craft Academy',
+      location:    'Minds\' Craft Center',
       category:    'Event',
       description: e.description || '',
       image:       null,
