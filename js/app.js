@@ -2760,54 +2760,105 @@ async function initApp() {
   //    Must be exchanged via POST /auth/v1/token?grant_type=pkce
   //    to get a real access_token + refresh_token.
 
-  // ── Format A: hash-based (legacy implicit) ───────────────────
+  // ── Format A: hash-based — template sends #access_token={{ .Token }}&type=recovery
+  // {{ .Token }} is a short OTP, NOT a JWT — must be exchanged via /verify first.
   const hash = window.location.hash;
   if (hash && hash.includes('access_token') && hash.includes('type=recovery')) {
-    const params       = new URLSearchParams(hash.replace(/^#/, ''));
-    const token        = params.get('access_token');
-    const refreshToken = params.get('refresh_token');
-    if (token) {
-      window._resetToken        = token;
-      window._resetRefreshToken = refreshToken || null;
-      history.replaceState(null, '', window.location.pathname + window.location.search);
-      await Router.navigate('reset-password', { token, refreshToken }, false);
-      return;
+    const params   = new URLSearchParams(hash.replace(/^#/, ''));
+    const otpToken = params.get('access_token');   // short OTP from {{ .Token }}
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+
+    if (otpToken) {
+      console.log('[Auth] Recovery OTP detected, length:', otpToken.length, 'exchanging via /verify…');
+      try {
+        // Exchange OTP → real session JWT via /auth/v1/verify
+        const vResp = await fetch(`${SUPABASE_URL}/auth/v1/verify`, {
+          method:  'POST',
+          headers: { 'apikey': SUPABASE_ANON, 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ token: otpToken, type: 'recovery' })
+        });
+        const vData = await vResp.json().catch(() => ({}));
+        console.log('[Auth] /verify →', vResp.status, vData);
+
+        const realToken   = vData.access_token  || null;
+        const refreshToken = vData.refresh_token || null;
+
+        if (realToken) {
+          window._resetToken        = realToken;
+          window._resetRefreshToken = refreshToken;
+          await Router.navigate('reset-password', { token: realToken, refreshToken }, false);
+          return;
+        }
+        // verify failed — show invalid link screen
+        console.warn('[Auth] /verify failed:', vData);
+        await Router.navigate('reset-password', { token: '', refreshToken: null }, false);
+        return;
+      } catch (e) {
+        console.warn('[Auth] /verify error:', e.message);
+        await Router.navigate('reset-password', { token: '', refreshToken: null }, false);
+        return;
+      }
     }
   }
 
   // ── Format B: PKCE code exchange ─────────────────────────────
-  // Supabase sends ?code=XXX when PKCE flow is active.
-  // We stored a code_verifier in sessionStorage at forgotPassword() time.
-  const urlParams   = new URLSearchParams(window.location.search);
-  const pkceCode    = urlParams.get('code');
+  // Supabase PKCE flow: reset link arrives as ?code=XXX
+  // Strategy: try with verifier first, then without, then OTP fallback
+  const urlParams = new URLSearchParams(window.location.search);
+  const pkceCode  = urlParams.get('code');
   if (pkceCode) {
     // Clean URL immediately so the code isn't reused on refresh
     history.replaceState(null, '', window.location.pathname);
 
-    const codeVerifier = sessionStorage.getItem('pkce_verifier') || '';
-    console.log('[Auth] PKCE code detected. verifier present:', !!codeVerifier);
+    // Retrieve verifier from localStorage (set at forgotPassword time)
+    const codeVerifier  = localStorage.getItem('pkce_verifier')  || '';
+    const verifierTs    = parseInt(localStorage.getItem('pkce_verifier_ts') || '0', 10);
+    const verifierFresh = codeVerifier && (Date.now() - verifierTs < 30 * 60 * 1000); // 30 min
+    console.log('[Auth] PKCE code detected. verifier present:', !!codeVerifier, 'fresh:', verifierFresh);
+
+    // Clear stored verifier (one-time use)
+    localStorage.removeItem('pkce_verifier');
+    localStorage.removeItem('pkce_verifier_ts');
+    // Also clear old sessionStorage key
+    sessionStorage.removeItem('pkce_verifier');
+
+    const _tryPkceExchange = async (body) => {
+      const r = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=pkce`, {
+        method:  'POST',
+        headers: { 'apikey': SUPABASE_ANON, 'Content-Type': 'application/json' },
+        body:    JSON.stringify(body)
+      });
+      const d = await r.json().catch(() => ({}));
+      console.log('[Auth] PKCE exchange', JSON.stringify(body).substring(0,80), '→', r.status, d);
+      return r.ok ? d : null;
+    };
 
     try {
-      // Exchange the code + verifier for real tokens
-      const body = codeVerifier
-        ? { auth_code: pkceCode, code_verifier: codeVerifier }
-        : { auth_code: pkceCode };
+      let exchData = null;
 
-      const exchResp = await fetch(
-        `${SUPABASE_URL}/auth/v1/token?grant_type=pkce`,
-        {
+      // Attempt 1: with code_verifier (correct PKCE)
+      if (verifierFresh) {
+        exchData = await _tryPkceExchange({ auth_code: pkceCode, code_verifier: codeVerifier });
+      }
+
+      // Attempt 2: without verifier (works if Supabase project has PKCE disabled server-side)
+      if (!exchData) {
+        exchData = await _tryPkceExchange({ auth_code: pkceCode });
+      }
+
+      // Attempt 3: try grant_type=magiclink (OTP-style)
+      if (!exchData) {
+        const r3 = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=magiclink`, {
           method:  'POST',
           headers: { 'apikey': SUPABASE_ANON, 'Content-Type': 'application/json' },
-          body:    JSON.stringify(body)
-        }
-      );
-      const exchData = await exchResp.json().catch(() => ({}));
-      console.log('[Auth] PKCE exchange →', exchResp.status, exchData);
+          body:    JSON.stringify({ token: pkceCode })
+        });
+        const d3 = await r3.json().catch(() => ({}));
+        console.log('[Auth] magiclink attempt →', r3.status, d3);
+        if (r3.ok && d3.access_token) exchData = d3;
+      }
 
-      // Clear stored verifier (one-time use)
-      sessionStorage.removeItem('pkce_verifier');
-
-      if (exchResp.ok && exchData.access_token) {
+      if (exchData && exchData.access_token) {
         window._resetToken        = exchData.access_token;
         window._resetRefreshToken = exchData.refresh_token || null;
         await Router.navigate('reset-password', {
@@ -2817,15 +2868,14 @@ async function initApp() {
         return;
       }
 
-      // Exchange failed — show error on reset-password screen with the raw code
-      console.warn('[Auth] PKCE exchange failed:', exchData);
-      // Fall through to show reset-password with empty token → "invalid link" UI
-      window._resetToken        = '';
-      window._resetRefreshToken = null;
+      // All exchanges failed — show "invalid link" UI
+      console.warn('[Auth] All PKCE exchanges failed.');
       await Router.navigate('reset-password', { token: '', refreshToken: null }, false);
       return;
     } catch (e) {
       console.warn('[Auth] PKCE exchange error:', e.message);
+      await Router.navigate('reset-password', { token: '', refreshToken: null }, false);
+      return;
     }
   }
 
