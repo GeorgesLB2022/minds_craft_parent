@@ -1,5 +1,5 @@
-// SW v20250426n — hash OTP exchanged via /auth/v1/verify before reset-password screen
-const SW_VERSION = '20250426n';
+// SW v20250426o — forgotPassword: reverted to simple POST (no PKCE params) + /verify OTP exchange
+const SW_VERSION = '20250426o';
 
 self.addEventListener('install', () => {
   console.log('[SW] Installing version', SW_VERSION);
