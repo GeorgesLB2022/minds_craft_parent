@@ -1,5 +1,5 @@
-// SW v20250426e — force icon cache bust: new Minds' Craft logo for all devices
-const SW_VERSION = '20250426e';
+// SW v20250426g — attendance always shown, new icon large padding, package name fix
+const SW_VERSION = '20250426g';
 
 self.addEventListener('install', () => {
   console.log('[SW] Installing version', SW_VERSION);
