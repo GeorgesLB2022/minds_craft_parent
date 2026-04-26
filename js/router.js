@@ -98,7 +98,7 @@ const NavManager = {
     if (!bottomNav) return;
 
     // Hide nav for auth screens
-    const authScreens = ['splash', 'login', 'forgot-password', 'reset-success'];
+    const authScreens = ['splash', 'login', 'forgot-password', 'reset-password', 'reset-success'];
     if (authScreens.includes(screenId)) {
       bottomNav.classList.add('hidden');
       return;
