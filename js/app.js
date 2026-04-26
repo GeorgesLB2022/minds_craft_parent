@@ -1033,7 +1033,6 @@ function renderOverviewTab(kid, classes, allSubs, attendance, latestAssess, trai
         <div style="flex:1;">
           <div style="font-size:15px;font-weight:600;color:var(--color-text);">${t.name}</div>
           <div style="font-size:13px;color:var(--color-text-secondary);">${t.specialty}</div>
-          <div style="font-size:12px;color:var(--color-text-muted);margin-top:2px;">${t.experience} experience</div>
         </div>
         ${trainers.length > 1 ? `<button onclick="Router.navigate('trainer-detail',{trainerId:'${t.id}'})" style="font-size:11px;padding:4px 10px;border:1px solid var(--color-border);border-radius:99px;background:transparent;color:var(--color-text-secondary);cursor:pointer;">Profile</button>` : ''}
       </div>`).join('')}
@@ -1057,10 +1056,10 @@ function renderOverviewTab(kid, classes, allSubs, attendance, latestAssess, trai
       <div style="font-size:13px;color:var(--color-text-secondary);font-style:italic;">"${latestAssess.remarks}"</div>
     </div>` : ''}
 
-    <!-- All Packages summary (tap to see detail) -->
-    ${(allSubs && allSubs.filter(s => s.status !== 'none').length > 0) ? `
+    <!-- All Packages summary REMOVED from overview — visible in Subscription tab -->
+    ${false ? `
     <div onclick="switchKidTab('subscription', document.querySelector('[data-tab=subscription]'))" style="cursor:pointer;">
-      ${allSubs.filter(s => s.status !== 'none').map(s => `
+      ${(allSubs||[]).filter(s => s.status !== 'none').map(s => `
       <div class="${UI.subCardClass(s)}" style="margin-bottom:var(--space-2);">
         <div style="position:relative;">
           <div class="sub-card__name">${s.packageName}</div>
@@ -1089,77 +1088,71 @@ function renderAttendanceTab(attendance, classes, allSubs) {
   const safeClasses = classes    || [];
   const hasLevelIds = safeAtt.some(r => r.levelId);
 
+  // If no classes enrolled but we still have raw attendance records, show them all
   if (safeClasses.length === 0) {
-    return `<div class="empty-state"><div class="empty-state__title">No courses enrolled</div></div>`;
+    if (safeAtt.length === 0) {
+      return `<div class="empty-state"><div class="empty-state__title">No attendance records found</div></div>`;
+    }
+    // Fallback: show all records ungrouped
+    return _renderAttRows(safeAtt, null);
   }
 
-  // One card per course
+  // One card per enrolled course — always show attendance regardless of package
   return safeClasses.map(cls => {
-    // Match this course to its specific allocated package
+    // Get ALL attendance records for this course (no date filtering by package)
+    const clsAtt = safeAtt.filter(r =>
+      hasLevelIds ? r.levelId === cls.id : r.className === cls.name
+    );
+
+    // Optional: look up the matched package just for the label/status badge
     const matchedSub = findAllocForCourse(cls, allSubs || []);
-    const subList = matchedSub ? [matchedSub] : [];
 
-    // Build one block for the matched package
-    const pkgBlocks = subList.length > 0 ? subList.map(sub => {
-      const pkgStart  = sub.startDate  ? new Date(sub.startDate  + 'T00:00:00') : null;
-      const pkgEnd    = sub.expiryDate ? new Date(sub.expiryDate + 'T00:00:00') : null;
-      const pkgLabel  = sub.packageName + (sub.startDate ? ` (${UI.formatDate(sub.startDate)} – ${UI.formatDate(sub.expiryDate)})` : '');
-      const pkgExpiredFlag = sub.status === 'expired' || sub.status === 'none';
+    // Stats over ALL records
+    const present    = clsAtt.filter(r => r.status === 'present' || r.status === 'late').length;
+    const absent     = clsAtt.filter(r => r.status === 'absent').length;
+    const late       = clsAtt.filter(r => r.status === 'late').length;
+    const total      = clsAtt.length;
+    const rate       = total > 0 ? Math.round((present / total) * 100) : 0;
 
-      // Filter attendance for this course within this package period
-      const clsAtt = safeAtt.filter(r => {
-        const match = hasLevelIds ? r.levelId === cls.id : r.className === cls.name;
-        if (!match) return false;
-        const d = r.date ? new Date(r.date) : null;
-        if (!d) return true;
-        return (!pkgStart || d >= pkgStart) && (!pkgEnd || d <= pkgEnd);
-      });
-
-      // Provisioned sessions = total scheduled days in the package window
-      const dayIndex = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].indexOf((cls.days || [])[0]);
-      let provisioned = clsAtt.length || 1;
-      if (pkgStart && pkgEnd && dayIndex >= 0) {
-        let cnt = 0;
-        const cur = new Date(pkgStart);
-        const startDiff = (dayIndex - cur.getDay() + 7) % 7;
-        cur.setDate(cur.getDate() + startDiff);
-        while (cur <= pkgEnd) { cnt++; cur.setDate(cur.getDate() + 7); }
-        if (cnt > 0) provisioned = cnt;
-      }
-
-      const present = clsAtt.filter(r => r.status === 'present' || r.status === 'late').length;
-      const absent  = clsAtt.filter(r => r.status === 'absent').length;
-      const late    = clsAtt.filter(r => r.status === 'late').length;
-      const total   = clsAtt.length;
-      // Rate = attended / provisioned × 100 (more accurate than attended/recorded)
-      const rate    = provisioned > 0 ? Math.round((present / provisioned) * 100) : 0;
-
-      const rows = clsAtt.map(r => `
-        <div class="att-row">
-          <div class="att-row__date">
-            <div class="att-row__day">${r.day}</div>
-            <div class="att-row__num">${new Date(r.date).getDate()}</div>
+    // Package info banner (optional, purely informational)
+    let pkgBanner = '';
+    if (matchedSub && matchedSub.status !== 'none') {
+      const statusColor = matchedSub.status === 'expired'
+        ? 'var(--color-danger)' : matchedSub.status === 'warning'
+        ? 'var(--color-warning)' : 'var(--color-success)';
+      const statusIcon  = matchedSub.status === 'expired' ? '🔴'
+        : matchedSub.status === 'warning' ? '⚠️' : '✅';
+      pkgBanner = `
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:var(--radius-sm);background:var(--color-bg-secondary);border:1px solid var(--color-border);margin-bottom:var(--space-3);">
+          <span style="font-size:13px;">${statusIcon}</span>
+          <div style="flex:1;">
+            <div style="font-size:13px;font-weight:600;color:var(--color-text);">${matchedSub.packageName}</div>
+            ${matchedSub.startDate ? `<div style="font-size:11px;color:var(--color-text-muted);">${UI.formatDate(matchedSub.startDate)} – ${UI.formatDate(matchedSub.expiryDate)}</div>` : ''}
           </div>
-          <div class="att-row__info">
-            <div class="att-row__class">${r.className}</div>
-            <div class="att-row__time">${UI.formatDateShort(r.date)} · ${r.time}</div>
-          </div>
-          ${UI.attendanceBadge(r.status)}
-        </div>`).join('');
-
-      return `
-        <div style="margin-bottom:var(--space-3);padding:var(--space-3);background:var(--color-bg-secondary,#F8FAFC);border-radius:var(--radius-md);border:1px solid var(--color-border);">
-          <div style="font-size:12px;font-weight:600;color:var(--color-text-secondary);margin-bottom:var(--space-2);">${pkgLabel}</div>
-          ${pkgExpiredFlag ? `<div style="font-size:11px;padding:4px 8px;background:var(--color-warning);color:white;border-radius:var(--radius-sm);display:inline-block;margin-bottom:var(--space-2);">🔄 Renew Subscription</div>` : ''}
-          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center;margin-bottom:${total > 0 ? 'var(--space-3)' : '0'};">
-            <div><div style="font-size:15px;font-weight:800;color:${provisioned > 0 ? (rate >= 80 ? 'var(--color-success)' : 'var(--color-warning)') : 'var(--color-text-muted)'};">${provisioned > 0 ? rate + '%' : '—'}</div><div style="font-size:10px;color:var(--color-text-muted);">Rate</div></div>
-            <div><div style="font-size:15px;font-weight:800;color:var(--color-success);">${present}</div><div style="font-size:10px;color:var(--color-text-muted);">Present</div></div>
-            <div><div style="font-size:15px;font-weight:800;color:var(--color-danger);">${absent}</div><div style="font-size:10px;color:var(--color-text-muted);">Absent</div></div>
-            <div><div style="font-size:15px;font-weight:800;color:var(--color-warning);">${late}</div><div style="font-size:10px;color:var(--color-text-muted);">Late</div></div>
-          </div>
-          ${rows.length ? rows : `<div style="font-size:12px;color:var(--color-text-muted);text-align:center;padding:var(--space-2);">No records for this period</div>`}
+          <span style="font-size:11px;font-weight:700;color:${statusColor};text-transform:uppercase;">${matchedSub.status}</span>
         </div>`;
-    }).join('') : `<div style="font-size:13px;color:var(--color-text-muted);text-align:center;padding:var(--space-3);">No packages assigned</div>`;
+    }
+
+    const rows = clsAtt.map(r => `
+      <div class="att-row">
+        <div class="att-row__date">
+          <div class="att-row__day">${r.day}</div>
+          <div class="att-row__num">${new Date(r.date).getDate()}</div>
+        </div>
+        <div class="att-row__info">
+          <div class="att-row__class">${r.className}</div>
+          <div class="att-row__time">${UI.formatDateShort(r.date)} · ${r.time}</div>
+        </div>
+        ${UI.attendanceBadge(r.status)}
+      </div>`).join('');
+
+    const statsHtml = `
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center;margin-bottom:${total > 0 ? 'var(--space-3)' : '0'};">
+        <div><div style="font-size:15px;font-weight:800;color:${total > 0 ? (rate >= 80 ? 'var(--color-success)' : 'var(--color-warning)') : 'var(--color-text-muted)'};">${total > 0 ? rate + '%' : '—'}</div><div style="font-size:10px;color:var(--color-text-muted);">Rate</div></div>
+        <div><div style="font-size:15px;font-weight:800;color:var(--color-success);">${present}</div><div style="font-size:10px;color:var(--color-text-muted);">Present</div></div>
+        <div><div style="font-size:15px;font-weight:800;color:var(--color-danger);">${absent}</div><div style="font-size:10px;color:var(--color-text-muted);">Absent</div></div>
+        <div><div style="font-size:15px;font-weight:800;color:var(--color-warning);">${late}</div><div style="font-size:10px;color:var(--color-text-muted);">Late</div></div>
+      </div>`;
 
     return `
       <div class="card" style="margin-bottom:var(--space-4);">
@@ -1167,9 +1160,46 @@ function renderAttendanceTab(attendance, classes, allSubs) {
           <span class="card-title">${cls.courseName || cls.name}</span>
           <span style="font-size:12px;color:var(--color-text-muted);">${(cls.days || [])[0] || ''} · ${cls.time}</span>
         </div>
-        ${pkgBlocks}
+        ${pkgBanner}
+        ${statsHtml}
+        ${rows.length
+          ? rows
+          : `<div style="font-size:13px;color:var(--color-text-muted);text-align:center;padding:var(--space-3);">No attendance records yet</div>`
+        }
       </div>`;
   }).join('');
+}
+
+// Helper: render a flat list of attendance rows (used when no classes context)
+function _renderAttRows(attRows, title) {
+  const present = attRows.filter(r => r.status === 'present' || r.status === 'late').length;
+  const absent  = attRows.filter(r => r.status === 'absent').length;
+  const late    = attRows.filter(r => r.status === 'late').length;
+  const total   = attRows.length;
+  const rate    = total > 0 ? Math.round((present / total) * 100) : 0;
+  const rows    = attRows.map(r => `
+    <div class="att-row">
+      <div class="att-row__date">
+        <div class="att-row__day">${r.day}</div>
+        <div class="att-row__num">${new Date(r.date).getDate()}</div>
+      </div>
+      <div class="att-row__info">
+        <div class="att-row__class">${r.className}</div>
+        <div class="att-row__time">${UI.formatDateShort(r.date)} · ${r.time}</div>
+      </div>
+      ${UI.attendanceBadge(r.status)}
+    </div>`).join('');
+  return `
+    <div class="card" style="margin-bottom:var(--space-4);">
+      ${title ? `<div class="card-header" style="margin-bottom:var(--space-3);"><span class="card-title">${title}</span></div>` : ''}
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center;margin-bottom:var(--space-3);">
+        <div><div style="font-size:15px;font-weight:800;color:${rate>=80?'var(--color-success)':'var(--color-warning)'};">${rate}%</div><div style="font-size:10px;color:var(--color-text-muted);">Rate</div></div>
+        <div><div style="font-size:15px;font-weight:800;color:var(--color-success);">${present}</div><div style="font-size:10px;color:var(--color-text-muted);">Present</div></div>
+        <div><div style="font-size:15px;font-weight:800;color:var(--color-danger);">${absent}</div><div style="font-size:10px;color:var(--color-text-muted);">Absent</div></div>
+        <div><div style="font-size:15px;font-weight:800;color:var(--color-warning);">${late}</div><div style="font-size:10px;color:var(--color-text-muted);">Late</div></div>
+      </div>
+      ${rows || `<div style="font-size:13px;color:var(--color-text-muted);text-align:center;padding:var(--space-3);">No attendance records yet</div>`}
+    </div>`;
 }
 
 function renderAssessmentsTab(assessments, kid) {
