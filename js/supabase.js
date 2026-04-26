@@ -681,7 +681,7 @@ const DataService = {
       let pkg = null;
       if (alloc.package_id) {
         const pkgs = await sbGet(
-          `packages?id=eq.${alloc.package_id}&select=id,name,description,status,price,sessions_per_month`,
+          `packages?id=eq.${alloc.package_id}&select=id,name,description,status,base_price,default_discount,duration_months`,
           token
         ).catch(() => []);
         pkg = pkgs[0] || null;
@@ -719,7 +719,7 @@ const DataService = {
       let pkgMap = {};
       if (pkgIds.length) {
         const pkgs = await sbGet(
-          `packages?id=in.(${pkgIds.join(',')})&select=id,name,description,status,price,sessions_per_month`,
+          `packages?id=in.(${pkgIds.join(',')})&select=id,name,description,status,base_price,default_discount,duration_months`,
           token
         ).catch(() => []);
         pkgs.forEach(p => { pkgMap[p.id] = p; });
@@ -747,7 +747,7 @@ const DataService = {
       let pkgMap = {};
       if (pkgIds.length) {
         const pkgs = await sbGet(
-          `packages?id=in.(${pkgIds.join(',')})&select=id,name,description,status,price,sessions_per_month`,
+          `packages?id=in.(${pkgIds.join(',')})&select=id,name,description,status,base_price,default_discount,duration_months`,
           token
         ).catch(() => []);
         pkgs.forEach(p => { pkgMap[p.id] = p; });
