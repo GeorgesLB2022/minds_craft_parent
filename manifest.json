@@ -1,7 +1,7 @@
 {
-  "name": "Mind's Craft — Parent Portal",
-  "short_name": "Mind's Craft",
-  "description": "Follow your child's journey at Mind's Craft Academy — attendance, assessments, levels, classes and more.",
+  "name": "Minds' Craft — Parent Portal",
+  "short_name": "Minds' Craft",
+  "description": "Follow your child's journey at Minds' Craft Center — attendance, assessments, levels, classes and more.",
   "id": "/",
   "start_url": "/",
   "display": "standalone",
