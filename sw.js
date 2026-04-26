@@ -1,5 +1,5 @@
-// SW v20250426j — revert forgotPassword to original (no redirectTo — was blocking emails)
-const SW_VERSION = '20250426j';
+// SW v20250426l — PKCE full flow: generate verifier at forgotPassword(), exchange at initApp()
+const SW_VERSION = '20250426l';
 
 self.addEventListener('install', () => {
   console.log('[SW] Installing version', SW_VERSION);
