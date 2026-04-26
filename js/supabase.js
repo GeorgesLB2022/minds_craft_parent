@@ -229,26 +229,15 @@ const AuthService = {
 
   /**
    * Send forgot password email via Supabase Auth.
-   * Stores a PKCE code_verifier in localStorage (survives tab changes)
-   * so initApp can exchange the ?code= properly when the reset link opens.
+   * Simple POST to /recover — no PKCE params (they block email sending).
+   * The email template uses {{ .Token }} which is exchanged via /verify in initApp.
    */
   async forgotPassword(email) {
     try {
-      // Generate PKCE pair and persist verifier in localStorage
-      // (localStorage survives tab/window changes, unlike sessionStorage)
-      const codeVerifier  = _pkceGenerateVerifier();
-      const codeChallenge = await _pkceChallenge(codeVerifier);
-      localStorage.setItem('pkce_verifier', codeVerifier);
-      localStorage.setItem('pkce_verifier_ts', Date.now().toString()); // for expiry check
-
       const r = await fetch(`${SUPABASE_URL}/auth/v1/recover`, {
         method: 'POST',
         headers: { 'apikey': SUPABASE_ANON, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email:                 email.trim().toLowerCase(),
-          code_challenge:        codeChallenge,
-          code_challenge_method: 'S256'
-        })
+        body: JSON.stringify({ email: email.trim().toLowerCase() })
       });
       const data = await r.json().catch(() => ({}));
       console.log('[Auth] forgotPassword →', r.status, data);
