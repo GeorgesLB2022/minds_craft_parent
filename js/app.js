@@ -396,8 +396,9 @@ async function doLogin() {
 // SCREEN: RESET PASSWORD
 // (landed here after clicking the email link — token is in window._resetToken)
 // ============================
-Router.register('reset-password', async ({ token } = {}) => {
-  const accessToken = token || window._resetToken || '';
+Router.register('reset-password', async ({ token, refreshToken } = {}) => {
+  const accessToken  = token        || window._resetToken        || '';
+  const refreshTok   = refreshToken || window._resetRefreshToken || null;
   const el = document.getElementById('screen-reset-password');
 
   if (!accessToken) {
@@ -459,7 +460,7 @@ Router.register('reset-password', async ({ token } = {}) => {
             </span>
             <input type="password" id="rp-confirm" class="form-control has-icon"
               placeholder="Repeat your password"
-              onkeydown="if(event.key==='Enter') doResetPassword('${accessToken}')">
+              onkeydown="if(event.key==='Enter') doResetPassword('${accessToken}','${refreshTok||''}')">
           </div>
         </div>
 
@@ -472,14 +473,14 @@ Router.register('reset-password', async ({ token } = {}) => {
         <!-- Error -->
         <div id="rp-error" class="hidden" style="background:var(--color-danger-bg);color:var(--color-danger);padding:10px 14px;border-radius:var(--radius-md);font-size:13px;margin-bottom:var(--space-3);"></div>
 
-        <button id="rp-btn" class="btn btn--primary btn--block" onclick="doResetPassword('${accessToken}')" style="height:54px;font-size:16px;">
+        <button id="rp-btn" class="btn btn--primary btn--block" onclick="doResetPassword('${accessToken}','${refreshTok||''}')" style="height:54px;font-size:16px;">
           Update Password
         </button>
       </div>
     </div>`;
 });
 
-async function doResetPassword(accessToken) {
+async function doResetPassword(accessToken, refreshToken) {
   const newPwd     = document.getElementById('rp-new')?.value || '';
   const confirmPwd = document.getElementById('rp-confirm')?.value || '';
   const btn        = document.getElementById('rp-btn');
@@ -500,7 +501,7 @@ async function doResetPassword(accessToken) {
   btn.disabled = true;
   btn.innerHTML = '<div class="spinner" style="width:22px;height:22px;border-width:2px;margin:0;"></div>';
 
-  const result = await AuthService.updatePassword(accessToken, newPwd);
+  const result = await AuthService.updatePassword(accessToken, newPwd, refreshToken || window._resetRefreshToken || null);
 
   btn.disabled = false;
   btn.innerHTML = 'Update Password';
@@ -604,7 +605,7 @@ async function doForgotPwd() {
   btn.disabled = false;
   btn.innerHTML = 'Send Reset Link';
 
-  // Always show the same message for security (don't reveal if email exists)
+  // Always show success (security best practice — don't reveal if email exists)
   document.getElementById('screen-forgot-password').innerHTML = `
     <div style="display:flex;flex-direction:column;min-height:100vh;background:var(--color-bg);">
       ${UI.appBar('Reset Password', true)}
@@ -2753,13 +2754,15 @@ async function initApp() {
   // We intercept the hash BEFORE showing any screen.
   const hash = window.location.hash;
   if (hash && hash.includes('access_token') && hash.includes('type=recovery')) {
-    const params = new URLSearchParams(hash.replace(/^#/, ''));
-    const token  = params.get('access_token');
+    const params       = new URLSearchParams(hash.replace(/^#/, ''));
+    const token        = params.get('access_token');
+    const refreshToken = params.get('refresh_token');
     if (token) {
-      window._resetToken = token;
-      // Clean the URL hash so it doesn't persist on refresh
+      window._resetToken        = token;
+      window._resetRefreshToken = refreshToken || null;
+      // Clean the URL hash so tokens don't persist on refresh
       history.replaceState(null, '', window.location.pathname + window.location.search);
-      await Router.navigate('reset-password', { token }, false);
+      await Router.navigate('reset-password', { token, refreshToken }, false);
       return; // don't proceed to normal boot
     }
   }
