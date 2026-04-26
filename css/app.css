@@ -1003,11 +1003,13 @@ ul, ol { list-style: none; }
 }
 
 .sub-card--warning {
-  background: linear-gradient(135deg, var(--color-warning) 0%, #F97316 100%);
+  background: linear-gradient(135deg, #1D4ED8 0%, #2563EB 100%);
+  border: 2px solid #FBBF24;
 }
 
 .sub-card--expired {
-  background: linear-gradient(135deg, #64748B 0%, #475569 100%);
+  background: linear-gradient(135deg, #374151 0%, #1F2937 100%);
+  border: 2px solid #6B7280;
 }
 
 .sub-card__name {
@@ -1025,8 +1027,8 @@ ul, ol { list-style: none; }
   gap: var(--space-5);
   margin-bottom: var(--space-4);
 }
-.sub-card__stat-val  { font-size: var(--font-size-2xl); font-weight: var(--font-weight-extrabold); display: block; }
-.sub-card__stat-label { font-size: var(--font-size-xs); opacity: 0.75; display: block; }
+.sub-card__stat-val  { font-size: var(--font-size-2xl); font-weight: var(--font-weight-extrabold); display: block; color: white; }
+.sub-card__stat-label { font-size: var(--font-size-xs); opacity: 0.8; display: block; color: rgba(255,255,255,0.85); }
 
 /* === PROGRESS BAR === */
 .progress-bar-wrap {
