@@ -250,12 +250,12 @@ Router.register('splash', async () => {
   const el = document.getElementById('screen-splash');
   el.innerHTML = `
     <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;background:linear-gradient(160deg,#0F172A 0%,#1E0A4A 100%);">
-      <div style="text-align:center;">
-        <div style="width:96px;height:96px;border-radius:28px;overflow:hidden;margin:0 auto var(--space-5);box-shadow:0 12px 40px rgba(108,58,232,0.4);">
-          <img src="icons/icon-512.png" alt="Mind's Craft" style="width:100%;height:100%;object-fit:cover;">
+      <div style="text-align:center;padding:var(--space-6);">
+        <!-- Full logo on white pill card so it shows clearly on dark background -->
+        <div style="background:white;border-radius:24px;padding:20px 28px;margin:0 auto var(--space-5);box-shadow:0 16px 48px rgba(0,0,0,0.4);display:inline-block;">
+          <img src="icons/logo.png" alt="Minds' Craft" style="width:220px;height:auto;display:block;">
         </div>
-        <h1 style="font-size:28px;font-weight:800;color:white;margin-bottom:6px;">Mind's Craft</h1>
-        <p style="color:rgba(255,255,255,0.55);font-size:14px;font-weight:500;">Parent Portal</p>
+        <p style="color:rgba(255,255,255,0.6);font-size:14px;font-weight:500;letter-spacing:0.5px;">Parent Portal</p>
         <div style="margin-top:48px;">
           <div class="spinner" style="margin:0 auto;border-color:rgba(108,58,232,0.2);border-top-color:#A855F7;"></div>
         </div>
@@ -282,11 +282,11 @@ Router.register('login', async () => {
       </div>
 
       <!-- Header -->
-      <div style="padding:48px var(--space-6) var(--space-6);text-align:center;">
-        <div style="width:76px;height:76px;border-radius:22px;overflow:hidden;margin:0 auto var(--space-4);box-shadow:0 8px 24px rgba(108,58,232,0.4);">
-          <img src="icons/icon-512.png" alt="Mind's Craft" style="width:100%;height:100%;object-fit:cover;">
+      <div style="padding:48px var(--space-6) var(--space-5);text-align:center;">
+        <div style="background:white;border-radius:18px;padding:14px 22px;margin:0 auto var(--space-4);display:inline-block;box-shadow:0 8px 28px rgba(0,0,0,0.35);">
+          <img src="icons/logo.png" alt="Minds' Craft" style="width:180px;height:auto;display:block;">
         </div>
-        <h1 style="font-size:26px;font-weight:800;color:white;margin-bottom:4px;">Welcome Back</h1>
+        <h1 style="font-size:24px;font-weight:800;color:white;margin-bottom:4px;">Welcome Back</h1>
         <p style="color:rgba(255,255,255,0.5);font-size:14px;">Sign in to your parent account</p>
       </div>
 
@@ -743,9 +743,7 @@ Router.register('home', async () => {
               <div style="font-size:10px;color:rgba(255,255,255,0.65);font-weight:500;">Events</div>
             </div>
             <div style="background:rgba(255,255,255,0.12);border-radius:var(--radius-lg);padding:var(--space-3);text-align:center;border:1px solid rgba(255,255,255,0.1);">
-              ${unread > 0
-                ? `<div style="font-size:22px;font-weight:800;color:white;">${unread}</div><div style="font-size:10px;color:rgba(255,255,255,0.65);font-weight:500;">Alerts</div>`
-                : `<div style="font-size:22px;font-weight:800;color:white;">${notifications.length}</div><div style="font-size:10px;color:rgba(255,255,255,0.65);font-weight:500;">Notifications</div>`}
+              <div style="font-size:22px;font-weight:800;color:white;">${unread}</div><div style="font-size:10px;color:rgba(255,255,255,0.65);font-weight:500;">${unread > 0 ? 'Alerts' : 'Notifications'}</div>
             </div>
           </div>
         </div>
@@ -1220,10 +1218,14 @@ function renderClassesTab(classes) {
         <div class="class-card__meta" style="margin-top:4px;">
           ${c.days.join(' · ')} · ${c.duration}
         </div>
-        <div class="class-card__meta" style="margin-top:3px;">
-          <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="2"/></svg>
-          ${c.trainerName}
-        </div>
+        ${(() => {
+          const n = (c.trainerNames && c.trainerNames !== '—') ? c.trainerNames
+                  : (c.trainerName && c.trainerName !== '—') ? c.trainerName : '';
+          return n ? `<div class="class-card__meta" style="margin-top:3px;">
+            <svg width="12" height="12" fill="none" viewBox="0 0 24 24" style="flex-shrink:0;margin-top:1px;"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="2"/></svg>
+            ${n}
+          </div>` : '';
+        })()}
         <div class="class-card__meta" style="margin-top:3px;">
           <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="3" stroke="currentColor" stroke-width="2"/></svg>
           ${c.location}
@@ -1249,7 +1251,10 @@ function renderLevelTab(levelInfo, classes, kid) {
     // The level name IS cls.name (e.g. "Robotics Level 1", "Speed Math Level 2")
     // The course name is cls.courseName (e.g. "Robotics & STEM", "Speed Math")
     const levelLabel  = cls.name || 'Active Student';
-    const trainerName = cls.trainerName || '—';
+    // Build clickable trainer links for the Level tab
+    const trainerList = (cls.trainers && cls.trainers.filter(t => t && t.id && t.full_name && t.full_name.trim() !== '' && t.full_name !== '—').length > 0)
+      ? cls.trainers.filter(t => t && t.id && t.full_name && t.full_name.trim() !== '' && t.full_name !== '—')
+      : (cls.trainerId && cls.trainerName && cls.trainerName !== '—' ? [{ id: cls.trainerId, full_name: cls.trainerName }] : []);
     const days        = (cls.days || []).join(', ') || '—';
     const time        = cls.time || '—';
     const duration    = cls.duration || '—';
@@ -1270,7 +1275,15 @@ function renderLevelTab(levelInfo, classes, kid) {
         </div>
 
         <div class="info-row"><span class="info-row__key">Level</span><span class="info-row__val" style="font-weight:600;color:var(--color-primary);">${levelLabel}</span></div>
-        <div class="info-row"><span class="info-row__key">Trainer</span><span class="info-row__val">${trainerName}</span></div>
+        ${trainerList.length > 0 ? `
+        <div class="info-row" style="align-items:flex-start;">
+          <span class="info-row__key" style="padding-top:3px;">Trainer${trainerList.length > 1 ? 's' : ''}</span>
+          <span class="info-row__val" style="text-align:right;display:flex;flex-direction:column;gap:5px;">
+            ${trainerList.map(t =>
+              `<a onclick="Router.navigate('trainer-detail',{trainerId:'${t.id}'})" style="display:block;color:var(--color-primary);font-size:14px;font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:rgba(108,58,232,0.35);">${t.full_name.trim()}</a>`
+            ).join('')}
+          </span>
+        </div>` : ''}
         <div class="info-row"><span class="info-row__key">Day(s)</span><span class="info-row__val">${days}</span></div>
         <div class="info-row"><span class="info-row__key">Time</span><span class="info-row__val">${time}</span></div>
         <div class="info-row"><span class="info-row__key">Duration</span><span class="info-row__val">${duration}</span></div>
@@ -1309,49 +1322,121 @@ function renderLevelTab(levelInfo, classes, kid) {
 
 function renderSubscriptionTab(allSubs, kid) {
   const safeSubs = allSubs || [];
+  const kidName  = kid?.name || 'your child';
+
+  // ── No subscription at all ──────────────────────────────────────
   if (safeSubs.length === 0) {
     return `
-      <div class="empty-state">
-        <div class="empty-state__title">No Packages Found</div>
-        <div class="empty-state__body">No subscription packages have been assigned yet.</div>
+      <div class="card" style="border-left:4px solid var(--color-danger);margin-bottom:var(--space-4);">
+        <div style="text-align:center;padding:var(--space-4) 0;">
+          <div style="font-size:40px;margin-bottom:var(--space-2);">📦</div>
+          <div style="font-size:16px;font-weight:700;color:var(--color-danger);margin-bottom:6px;">No Subscription Found</div>
+          <div style="font-size:13px;color:var(--color-text-secondary);line-height:1.6;">
+            No package has been assigned to <strong>${kidName}</strong> yet.<br>
+            Contact Minds' Craft Center to get started.
+          </div>
+        </div>
       </div>
-      <button class="btn btn--primary btn--block" style="margin-top:var(--space-4);" onclick="UI.toast('Renewal request sent. Our team will contact you shortly.','✅')">
-        🔄 Request Subscription
+      <button class="btn btn--primary btn--block" onclick="UI.toast('Request sent for ${kidName}. Our team will contact you shortly.','✅')">
+        📋 Request a Package
+      </button>
+      <button class="btn btn--secondary btn--block" style="margin-top:var(--space-3);" onclick="Router.navigate('subscriptions')">
+        View Available Packages
       </button>`;
   }
 
-  const pkgCards = safeSubs.map(sub => {
-    const isActive  = sub.status === 'active' || sub.status === 'warning';
-    const isExpired = sub.status === 'expired' || sub.status === 'none';
-    const borderColor = isActive ? 'var(--color-success)' : (isExpired ? 'var(--color-danger)' : 'var(--color-warning)');
+  // ── Sort: active first, then warning, then expired ──────────────
+  const sorted = [...safeSubs].sort((a, b) => {
+    const order = { active:0, warning:1, expired:2, none:3 };
+    return (order[a.status] ?? 4) - (order[b.status] ?? 4);
+  });
 
-    return `
-      <div class="card" style="margin-bottom:var(--space-4);border-left:4px solid ${borderColor};">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3);">
-          <div>
-            <div style="font-size:16px;font-weight:700;color:var(--color-text);">${sub.packageName}</div>
-            <div style="font-size:13px;color:var(--color-text-secondary);">${sub.plan}</div>
+  const pkgCards = sorted.map(sub => {
+    const isActive   = sub.status === 'active';
+    const isExpiring = sub.status === 'warning';
+    const isExpired  = sub.status === 'expired' || sub.status === 'none';
+    const borderColor = isActive   ? 'var(--color-success)'
+                      : isExpiring ? 'var(--color-warning)'
+                      : 'var(--color-danger)';
+
+    const statusBadge = isExpired  ? UI.badge('Expired', 'danger')
+                      : isExpiring ? UI.badge('Expiring Soon', 'warning')
+                      : UI.badge('Active', 'success');
+
+    // Expired banner
+    if (isExpired) {
+      return `
+      <div class="card" style="margin-bottom:var(--space-3);border-left:4px solid var(--color-danger);">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-2);">
+          <div style="font-size:15px;font-weight:700;">${sub.packageName}</div>
+          ${statusBadge}
+        </div>
+        <div style="background:rgba(239,68,68,0.07);border-radius:var(--radius-md);padding:var(--space-3);text-align:center;margin-bottom:var(--space-3);">
+          <div style="font-size:13px;font-weight:600;color:var(--color-danger);">
+            Subscription expired${sub.expiryDate ? ' on ' + UI.formatDate(sub.expiryDate) : ''}
           </div>
-          ${UI.subStatusBadge(sub)}
+          <div style="font-size:12px;color:var(--color-text-secondary);margin-top:4px;">Please contact Minds' Craft Center to renew.</div>
         </div>
         <div class="info-row"><span class="info-row__key">Start Date</span><span class="info-row__val">${UI.formatDate(sub.startDate) || '—'}</span></div>
-        <div class="info-row"><span class="info-row__key">Expiry Date</span><span class="info-row__val">${UI.formatDate(sub.expiryDate) || '—'}</span></div>
-        <div class="info-row"><span class="info-row__key">Days Remaining</span><span class="info-row__val" style="font-weight:700;color:${sub.daysLeft > 7 ? 'var(--color-success)' : sub.daysLeft > 0 ? 'var(--color-warning)' : 'var(--color-danger)'}">${sub.daysLeft > 0 ? sub.daysLeft + ' days' : 'Expired'}</span></div>
-        <div class="info-row"><span class="info-row__key">Auto-Renew</span><span class="info-row__val">${sub.autoRenew ? '✓ Enabled' : '✗ Disabled'}</span></div>
-        ${isExpired ? `
-        <div style="margin-top:var(--space-3);padding:8px 12px;background:var(--color-warning);border-radius:var(--radius-sm);text-align:center;">
-          <span style="font-size:12px;font-weight:700;color:white;">🔄 Renew Subscription</span>
-        </div>` : ''}
+        <div class="info-row"><span class="info-row__key">Expired On</span><span class="info-row__val" style="color:var(--color-danger);font-weight:700;">${UI.formatDate(sub.expiryDate) || '—'}</span></div>
+        <button class="btn btn--primary btn--block btn--sm" style="margin-top:var(--space-3);" onclick="UI.toast('Renewal request sent. Our team will contact you shortly.','✅')">
+          🔄 Renew Now
+        </button>
       </div>`;
+    }
+
+    // Active / expiring card
+    const hasSessionData = sub.sessionsTotal > 0;
+    const sessBarWidth   = hasSessionData
+      ? Math.min(100, Math.round((sub.sessionsLeft / sub.sessionsTotal) * 100)) : 0;
+
+    return `
+    <div class="card" style="margin-bottom:var(--space-3);border-left:4px solid ${borderColor};">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3);">
+        <div>
+          <div style="font-size:16px;font-weight:700;color:var(--color-text);">${sub.packageName}</div>
+          ${sub.plan && sub.plan !== '—' && sub.plan !== sub.packageName
+            ? `<div style="font-size:13px;color:var(--color-text-secondary);">${sub.plan}</div>` : ''}
+        </div>
+        ${statusBadge}
+      </div>
+
+      <div class="info-row"><span class="info-row__key">Start Date</span><span class="info-row__val">${UI.formatDate(sub.startDate) || '—'}</span></div>
+      <div class="info-row"><span class="info-row__key">Expiry Date</span><span class="info-row__val">${UI.formatDate(sub.expiryDate) || '—'}</span></div>
+      <div class="info-row"><span class="info-row__key">Days Left</span>
+        <span class="info-row__val" style="font-weight:700;color:${sub.daysLeft > 7 ? 'var(--color-success)' : sub.daysLeft > 0 ? 'var(--color-warning)' : 'var(--color-danger)'}">
+          ${sub.daysLeft > 0 ? sub.daysLeft + ' days' : 'Expires today'}
+        </span>
+      </div>
+      ${hasSessionData ? `
+      <div class="info-row"><span class="info-row__key">Sessions</span>
+        <span class="info-row__val" style="font-weight:700;color:${sub.sessionsLeft <= 2 ? 'var(--color-warning)' : 'var(--color-primary)'}">
+          ${sub.sessionsLeft} / ${sub.sessionsTotal} remaining
+        </span>
+      </div>
+      <div class="progress-bar-wrap" style="margin:var(--space-2) 0;">
+        <div class="progress-bar-fill" style="width:${sessBarWidth}%"></div>
+      </div>` : ''}
+      ${sub.price != null ? `<div class="info-row"><span class="info-row__key">Price</span><span class="info-row__val" style="font-weight:700;color:var(--color-primary);">${typeof sub.price === 'number' ? '$' + sub.price.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2}) : sub.price}</span></div>` : ''}
+      <div class="info-row"><span class="info-row__key">Auto-Renew</span><span class="info-row__val">${sub.autoRenew ? '✓ Enabled' : '✗ Disabled'}</span></div>
+
+      ${isExpiring ? `
+      <div style="margin-top:var(--space-2);padding:8px 12px;background:#92400E;border-radius:var(--radius-md);border:1px solid #D97706;text-align:center;">
+        <span style="font-size:12px;font-weight:600;color:#FDE68A;">⏰ Expiring in ${sub.daysLeft} day${sub.daysLeft !== 1 ? 's' : ''} — renew soon!</span>
+      </div>` : ''}
+    </div>`;
   }).join('');
+
+  const hasExpired = sorted.some(s => s.status === 'expired' || s.status === 'none');
 
   return `
     ${pkgCards}
+    ${hasExpired ? `
     <button class="btn btn--primary btn--block" onclick="UI.toast('Renewal request sent. Our team will contact you shortly.','✅')">
-      Request Renewal
-    </button>
+      🔄 Request Renewal
+    </button>` : ''}
     <button class="btn btn--secondary btn--block" style="margin-top:var(--space-3);" onclick="Router.navigate('subscriptions')">
-      View All Packages
+      📋 View All Packages
     </button>`;
 }
 
@@ -1405,14 +1490,31 @@ Router.register('classes', async () => {
   const kids = await DataService.getKids().catch(() => []);
   const allClasses = await DataService.getAllClasses().catch(() => []);
 
-  const classCards = allClasses.map(c => {
-    const kidForClass = kids.find(k => k.classIds.includes(c.id));
-    return `
+  // Group classes by course name
+  const courseGroups = {};
+  allClasses.forEach(c => {
+    const courseName = c.courseName || c.type || 'General';
+    if (!courseGroups[courseName]) courseGroups[courseName] = [];
+    courseGroups[courseName].push(c);
+  });
+
+  const groupedHTML = Object.entries(courseGroups).map(([courseName, classes]) => {
+    const cardsHTML = classes.map(c => {
+      const kidForClass = kids.find(k => k.classIds && k.classIds.includes(c.id));
+      // Build trainer display — show all names, never show TBD
+      const trainerDisplay = (c.trainerNames && c.trainerNames !== '—')
+        ? c.trainerNames
+        : (c.trainerName && c.trainerName !== '—') ? c.trainerName : '';
+      // Display date badge: day abbr, date number, full time
+      const nextDate = c.nextSession ? new Date(c.nextSession) : null;
+      const dayAbbr = c.days[0] ? c.days[0].substring(0,3).toUpperCase() : '—';
+      const dateNum = nextDate ? nextDate.getDate() : '—';
+      return `
       <div class="class-card" onclick="Router.navigate('class-detail',{classId:'${c.id}'})">
         <div class="class-card__date-badge">
-          <span class="class-card__date-day">${c.days[0]?.substring(0,3).toUpperCase()}</span>
-          <span class="class-card__date-num">${c.nextSession ? new Date(c.nextSession).getDate() : '—'}</span>
-          <span class="class-card__date-time">${c.time.split(' ')[1]}</span>
+          <span class="class-card__date-day">${dayAbbr}</span>
+          <span class="class-card__date-num">${dateNum}</span>
+          <span class="class-card__date-time">${c.time || '—'}</span>
         </div>
         <div class="class-card__info">
           <div class="class-card__name">${c.name}</div>
@@ -1421,16 +1523,23 @@ Router.register('classes', async () => {
             <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><polyline points="12 6 12 12 16 14" stroke="currentColor" stroke-width="2"/></svg>
             ${c.days.join(' · ')} · ${c.time} · ${c.duration}
           </div>
+          ${trainerDisplay ? `
           <div class="class-card__meta" style="margin-top:3px;">
             <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="2"/></svg>
-            ${c.trainerName}
-          </div>
+            ${trainerDisplay}
+          </div>` : ''}
           <div class="class-card__meta" style="margin-top:3px;">
             <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="3" stroke="currentColor" stroke-width="2"/></svg>
-            ${c.location}
+            Minds' Craft Center
           </div>
         </div>
         <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6" stroke="var(--color-text-muted)" stroke-width="2" stroke-linecap="round"/></svg>
+      </div>`;
+    }).join('');
+    return `
+      <div style="margin-bottom:var(--space-5);">
+        <div style="font-size:11px;font-weight:700;color:var(--color-text-muted);letter-spacing:0.8px;text-transform:uppercase;margin-bottom:var(--space-2);padding:0 2px;">${courseName}</div>
+        ${cardsHTML}
       </div>`;
   }).join('');
 
@@ -1444,7 +1553,7 @@ Router.register('classes', async () => {
             <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><path d="M12 8v4M12 16h.01" stroke="currentColor" stroke-width="2"/></svg>
             <span>Showing all classes for your linked kids.</span>
           </div>
-          ${classCards}
+          ${groupedHTML || '<div class="empty-state"><div class="empty-state__title">No Classes</div><div class="empty-state__body">No active classes found.</div></div>'}
         </div>
       </div>
     </div>`;
@@ -1456,6 +1565,12 @@ Router.register('classes', async () => {
 Router.register('class-detail', async ({ classId } = {}) => {
   const c = await DataService.getClass(classId).catch(() => null);
   if (!c) return;
+
+  // Fetch enrolled count for this level
+  let enrolledCount = 0;
+  try {
+    enrolledCount = await DataService.getLevelEnrolledCount(classId);
+  } catch(_) {}
 
   const el = document.getElementById('screen-class-detail');
   el.innerHTML = `
@@ -1479,12 +1594,29 @@ Router.register('class-detail', async ({ classId } = {}) => {
             <div class="info-row"><span class="info-row__key">Schedule</span><span class="info-row__val">${c.days.join(', ')}</span></div>
             <div class="info-row"><span class="info-row__key">Time</span><span class="info-row__val">${c.time}</span></div>
             <div class="info-row"><span class="info-row__key">Duration</span><span class="info-row__val">${c.duration}</span></div>
-            <div class="info-row"><span class="info-row__key">Location</span><span class="info-row__val">${c.location}</span></div>
-            <div class="info-row"><span class="info-row__key">Branch</span><span class="info-row__val">${c.branch}</span></div>
-            <div class="info-row"><span class="info-row__key">Trainer</span>
-              <button onclick="Router.navigate('trainer-detail',{trainerId:'${c.trainerId}'})" class="info-row__val" style="color:var(--color-primary);background:none;border:none;cursor:pointer;font-size:14px;font-weight:600;text-align:right;">${c.trainerName}</button>
-            </div>
-            <div class="info-row"><span class="info-row__key">Capacity</span><span class="info-row__val">${c.enrolled}/${c.capacity} enrolled</span></div>
+            <div class="info-row"><span class="info-row__key">Center</span><span class="info-row__val">Minds' Craft Center</span></div>
+            ${(() => {
+              // Build the definitive trainer list: prefer trainers[], fall back to trainerId
+              const list = (c.trainers && c.trainers.filter(t => t && t.id).length > 0)
+                ? c.trainers.filter(t => t && t.id)
+                : (c.trainerId ? [{ id: c.trainerId, full_name: c.trainerName }] : []);
+
+              // Filter out any entry with blank name AND no id
+              const validList = list.filter(t => t.id && t.full_name && t.full_name.trim() !== '' && t.full_name !== '—');
+
+              if (validList.length === 0) return '';   // hide row entirely if no trainer data
+
+              const label = validList.length > 1 ? 'Trainers' : 'Trainer';
+              const links = validList.map(t =>
+                `<a onclick="Router.navigate('trainer-detail',{trainerId:'${t.id}'})" style="display:block;color:var(--color-primary);font-size:14px;font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:rgba(108,58,232,0.35);">${t.full_name.trim()}</a>`
+              ).join('');
+
+              return `<div class="info-row" style="align-items:flex-start;">
+                <span class="info-row__key" style="padding-top:3px;">${label}</span>
+                <span class="info-row__val" style="text-align:right;display:flex;flex-direction:column;gap:5px;">${links}</span>
+              </div>`;
+            })()}
+            <div class="info-row"><span class="info-row__key">Enrolled</span><span class="info-row__val">${enrolledCount}${c.capacity ? ' / ' + c.capacity + ' spots' : ' students'}</span></div>
             <div class="info-row"><span class="info-row__key">Status</span><span class="info-row__val">${UI.badge('Active', 'success')}</span></div>
           </div>
 
@@ -1648,8 +1780,8 @@ Router.register('event-detail', async ({ eventId } = {}) => {
           </div>
 
           ${ev.status === 'upcoming' ? `
-          <button class="btn btn--primary btn--block" onclick="UI.toast('Your interest has been noted! We will remind you closer to the date.','📅')">
-            I'm Interested
+          <button class="btn btn--primary btn--block" onclick="window.open('tel:+96170123456');UI.toast('Calling Minds\' Craft Center to reserve your spot!','📞')">
+            📞 Call to Reserve
           </button>` : ''}
         </div>
       </div>
@@ -1781,59 +1913,159 @@ Router.register('trainer-detail', async ({ trainerId } = {}) => {
 // ============================
 // SCREEN: SUBSCRIPTIONS
 // ============================
+
 Router.register('subscriptions', async () => {
-  const subs = await DataService.getAllSubscriptions();
-  const packages = await DataService.getPackages();
+  const subs     = await DataService.getAllSubscriptions().catch(() => []);
+  const packages = await DataService.getPackages().catch(() => []);
 
-  const subsHTML = subs.map(s => `
-    <div class="${UI.subCardClass(s)}" style="margin-bottom:var(--space-3);cursor:default;">
-      <div style="position:relative;">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:var(--space-1);">
-          <div class="sub-card__name">${s.kidName}</div>
-          ${UI.badge(s.status === 'warning' ? 'Expiring Soon' : s.status === 'expired' ? 'Expired' : 'Active', 'neutral')}
-        </div>
-        <div class="sub-card__plan">${s.packageName} · ${s.plan}</div>
-        <div class="sub-card__stats">
-          <div>
-            <span class="sub-card__stat-val">${s.sessionsLeft}</span>
-            <span class="sub-card__stat-label">Sessions Left</span>
-          </div>
-          <div>
-            <span class="sub-card__stat-val">${s.daysLeft}</span>
-            <span class="sub-card__stat-label">Days Left</span>
-          </div>
-        </div>
-        <div class="progress-bar-wrap">
-          <div class="progress-bar-fill" style="width:${Math.round((s.sessionsLeft/s.sessionsTotal)*100)}%"></div>
-        </div>
-        <div style="font-size:11px;opacity:0.75;margin-top:6px;">Expires ${UI.formatDate(s.expiryDate)}</div>
-      </div>
-    </div>`).join('');
+  // ── Active Subscriptions ─────────────────────────────────────
+  const subsHTML = subs.length === 0
+    ? `<div class="empty-state" style="margin-bottom:var(--space-4);">
+         <div class="empty-state__title">No Active Subscriptions</div>
+         <div class="empty-state__body">No packages have been assigned yet. Contact Minds\' Craft Center to get started.</div>
+       </div>`
+    : subs.map(s => {
+        const isExpired  = s.status === 'expired' || s.status === 'none';
+        const isExpiring = s.status === 'warning';
+        // Determine Sessions Left display
+        const sessLeftDisplay = s.sessionsTotal > 0
+          ? `${s.sessionsLeft} / ${s.sessionsTotal}`
+          : (s.sessionsLeft > 0 ? s.sessionsLeft : '—');
+        const sessBarWidth = s.sessionsTotal > 0
+          ? Math.min(100, Math.round((s.sessionsLeft / s.sessionsTotal) * 100)) : 0;
 
-  const packagesHTML = packages.map(p => `
-    <div class="card" style="margin-bottom:var(--space-3);position:relative;${p.popular ? 'border:2px solid var(--color-primary);' : ''}">
-      ${p.popular ? `<div style="position:absolute;top:-12px;left:50%;transform:translateX(-50%);background:var(--color-primary);color:white;font-size:11px;font-weight:700;padding:2px 12px;border-radius:var(--radius-full);">MOST POPULAR</div>` : ''}
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:var(--space-3);">
-        <div>
-          <div style="font-size:17px;font-weight:700;">${p.name}</div>
-          <div style="color:var(--color-text-secondary);font-size:13px;">${p.sessionsPerMonth} sessions/month</div>
+        // Price display
+        const priceDisplay = s.price != null
+          ? `$${Number(s.price).toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})}${s.discountPct > 0 ? ' <span style="font-size:10px;opacity:0.8;">(−' + s.discountPct + '%)</span>' : ''}`
+          : '—';
+
+        return `
+        <div class="${UI.subCardClass(s)}" style="margin-bottom:var(--space-3);cursor:default;">
+          <div style="position:relative;">
+
+            <!-- Header: kid name + status badge -->
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;">
+              <div class="sub-card__name" style="color:white;">${s.kidName}</div>
+              <span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px;background:rgba(255,255,255,0.25);color:white;border:1px solid rgba(255,255,255,0.4);">
+                ${isExpired ? '🔴 Expired' : isExpiring ? '⚠️ Expiring Soon' : '✅ Active'}
+              </span>
+            </div>
+
+            <!-- Package name + plan -->
+            <div class="sub-card__plan" style="color:rgba(255,255,255,0.85);">${s.packageName}${s.plan && s.plan !== '—' ? ' · ' + s.plan : ''}</div>
+
+            ${isExpired ? `
+            <!-- Expired state -->
+            <div style="background:rgba(0,0,0,0.25);border-radius:var(--radius-md);padding:10px 14px;margin:var(--space-2) 0;border:1px solid rgba(255,255,255,0.15);">
+              <div style="font-size:12px;font-weight:600;color:white;">
+                ❌ Package expired${s.expiryDate ? ' on ' + UI.formatDate(s.expiryDate) : ''} — please renew to continue classes.
+              </div>
+            </div>
+            <button class="btn btn--block btn--sm" style="margin-top:var(--space-2);background:white;color:var(--color-danger);font-weight:700;border:none;"
+              onclick="UI.toast('Renewal request sent. Our team will contact you shortly.','✅')">🔄 Request Renewal</button>
+            ` : `
+            <!-- Stats row: Sessions Left · Days Left · Price Paid -->
+            <div class="sub-card__stats" style="gap:var(--space-4);">
+              <div>
+                <span class="sub-card__stat-val">${sessLeftDisplay}</span>
+                <span class="sub-card__stat-label">Sessions Left</span>
+              </div>
+              <div>
+                <span class="sub-card__stat-val">${s.daysLeft}</span>
+                <span class="sub-card__stat-label">Days Left</span>
+              </div>
+              <div>
+                <span class="sub-card__stat-val" style="font-size:16px;">${priceDisplay}</span>
+                <span class="sub-card__stat-label">Price Paid</span>
+              </div>
+            </div>
+
+            <!-- Progress bar (sessions) if applicable -->
+            ${s.sessionsTotal > 0 ? `
+            <div class="progress-bar-wrap" style="margin-bottom:var(--space-2);">
+              <div class="progress-bar-fill" style="width:${sessBarWidth}%;"></div>
+            </div>` : ''}
+
+            <!-- Date range -->
+            <div style="font-size:11px;color:rgba(255,255,255,0.8);margin-bottom:var(--space-2);">
+              📅 ${UI.formatDateShort(s.startDate)} → ${UI.formatDate(s.expiryDate)}
+            </div>
+
+            ${isExpiring ? `
+            <div style="background:rgba(251,191,36,0.25);border-radius:var(--radius-md);padding:8px 12px;border:1px solid rgba(251,191,36,0.5);">
+              <span style="font-size:12px;font-weight:600;color:#FDE68A;">⚠️ Expiring in ${s.daysLeft} day${s.daysLeft !== 1 ? 's' : ''} — please renew soon!</span>
+            </div>` : ''}`}
+
+          </div>
+        </div>`;
+      }).join('');
+
+  // ── Available Packages — from DB (packages + package_courses) ───
+  const packagesHTML = packages.map(p => {
+    // Duration label
+    const durLabel = p.durationMonths === 1  ? '1 Month'
+                   : p.durationMonths === 3  ? '3 Months'
+                   : p.durationMonths === 12 ? '1 Year'
+                   : p.durationMonths ? `${p.durationMonths} Months` : '';
+
+    // Price display — base_price with default_discount applied
+    const effectivePrice = p.price != null ? Number(p.price) : null;
+    const basePrice      = p.basePrice != null ? Number(p.basePrice) : null;
+    const hasDiscount    = p.discountPct > 0 && basePrice != null;
+
+    const priceBlock = effectivePrice != null
+      ? `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
+           ${hasDiscount ? `<div style="font-size:11px;color:#94A3B8;text-decoration:line-through;">$${basePrice.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})}</div>` : ''}
+           <div style="font-size:22px;font-weight:800;color:var(--color-primary);line-height:1.1;">$${effectivePrice.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+           ${hasDiscount ? `<div style="font-size:11px;font-weight:700;color:#10B981;background:#D1FAE5;padding:1px 8px;border-radius:99px;">${p.discountPct}% off</div>` : `<div style="font-size:11px;color:var(--color-text-secondary);">per package</div>`}
+         </div>`
+      : `<div style="font-size:13px;font-weight:600;color:var(--color-text-secondary);padding:4px 8px;background:var(--color-bg);border-radius:var(--radius-sm);">Contact us</div>`;
+
+    // Features from description
+    const featureRows = (p.features || []).filter(f => f.trim()).map(f => `
+      <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;">
+        <span style="flex-shrink:0;width:18px;height:18px;background:#D1FAE5;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;">
+          <svg width="11" height="11" fill="none" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" stroke="#059669" stroke-width="3"/></svg>
+        </span>
+        <span style="font-size:13px;color:var(--color-text-secondary);line-height:1.4;">${f}</span>
+      </div>`).join('');
+
+    // Included courses badges
+    const coursesBadges = (p.courses || []).length > 0
+      ? `<div style="margin-bottom:var(--space-3);">
+           <div style="font-size:11px;font-weight:700;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;">Included Courses</div>
+           <div style="display:flex;flex-wrap:wrap;gap:6px;">
+             ${p.courses.map(c => `<span style="font-size:12px;font-weight:600;padding:4px 12px;border-radius:99px;background:var(--color-primary);color:white;">${c}</span>`).join('')}
+           </div>
+         </div>`
+      : '';
+
+    return `
+    <div class="card" style="margin-bottom:var(--space-5);position:relative;overflow:visible;">
+
+      <!-- Package header: name + price side by side -->
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:var(--space-3);gap:var(--space-3);">
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:18px;font-weight:700;color:var(--color-text);margin-bottom:4px;">${p.name}</div>
+          ${durLabel ? `<span style="display:inline-block;font-size:11px;font-weight:600;padding:2px 10px;border-radius:99px;background:var(--color-primary-bg);color:var(--color-primary);">📅 ${durLabel}</span>` : ''}
         </div>
-        <div style="text-align:right;">
-          <div style="font-size:24px;font-weight:800;color:var(--color-primary);">${p.currency}${p.price}</div>
-          <div style="font-size:11px;color:var(--color-text-muted);">/month</div>
+        <div style="flex-shrink:0;text-align:right;">
+          ${priceBlock}
         </div>
       </div>
-      <div style="margin-bottom:var(--space-3);">
-        ${p.features.map(f => `
-          <div style="display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-1);">
-            <svg width="15" height="15" fill="none" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" stroke="var(--color-success)" stroke-width="2.5"/></svg>
-            <span style="font-size:13px;color:var(--color-text-secondary);">${f}</span>
-          </div>`).join('')}
-      </div>
-      <button class="btn btn--${p.popular ? 'primary' : 'secondary'} btn--block btn--sm" onclick="UI.toast('Our team will contact you to discuss this package.','📞')">
+
+      <!-- Divider -->
+      <div style="height:1px;background:var(--color-border);margin-bottom:var(--space-3);"></div>
+
+      ${coursesBadges}
+      ${featureRows ? `<div style="margin-bottom:var(--space-3);">${featureRows}</div>` : ''}
+
+      <button class="btn btn--primary btn--block"
+        onclick="UI.toast('Our team will contact you about the ${p.name.replace(/'/g,"\\'")} package. 📞','✅')">
         Enquire About This Package
       </button>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
   const el = document.getElementById('screen-subscriptions');
   el.innerHTML = `
@@ -1847,11 +2079,13 @@ Router.register('subscriptions', async () => {
             <h2 class="section-title">Available Packages</h2>
           </div>
           <p style="font-size:13px;color:var(--color-text-secondary);margin-bottom:var(--space-4);">Interested in upgrading or changing your plan? Contact us and our team will assist you.</p>
-          ${packagesHTML}
+          ${packagesHTML || '<div class="empty-state"><div class="empty-state__title">No packages found</div></div>'}
         </div>
       </div>
     </div>`;
 });
+
+
 
 // ============================
 // SCREEN: NOTIFICATIONS
@@ -1961,18 +2195,9 @@ Router.register('more', async () => {
             </div>
           </div>
 
-          <!-- Admin Diagnostic Tool -->
-          <div class="settings-section" style="margin-top:var(--space-4);">
-            <div class="settings-row" onclick="Router.navigate('auth-test')" style="opacity:0.6;">
-              <div class="settings-row__icon" style="background:#F1F5F9;">
-                <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2zm0 4v4m0 4h.01" stroke="#64748B" stroke-width="2" stroke-linecap="round"/></svg>
-              </div>
-              <span class="settings-row__label" style="color:var(--color-text-secondary);">🔧 Admin Diagnostic Tool</span>
-              <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6" stroke="var(--color-text-muted)" stroke-width="2"/></svg>
-            </div>
-          </div>
 
-          <p style="text-align:center;font-size:11px;color:var(--color-text-muted);margin-top:var(--space-6);">Mind's Craft Parent Portal v1.0<br>© 2026 Mind's Craft Academy</p>
+
+          <p style="text-align:center;font-size:11px;color:var(--color-text-muted);margin-top:var(--space-6);">Minds' Craft Parent Portal v1.0<br>© 2026 Minds' Craft Center</p>
         </div>
       </div>
     </div>`;
@@ -1986,10 +2211,10 @@ Router.register('about', async () => {
   el.innerHTML = `
     <div style="display:flex;flex-direction:column;flex:1;min-height:0;background:var(--color-bg);">
       <div class="about-hero">
-        <div style="width:72px;height:72px;border-radius:20px;overflow:hidden;margin:0 auto var(--space-3);">
-          <img src="icons/icon-512.png" alt="Mind's Craft" style="width:100%;height:100%;object-fit:cover;">
+        <div style="background:white;border-radius:16px;padding:12px 20px;margin:0 auto var(--space-3);display:inline-block;box-shadow:0 4px 16px rgba(0,0,0,0.2);">
+          <img src="icons/logo.png" alt="Minds' Craft" style="width:160px;height:auto;display:block;">
         </div>
-        <h1 style="font-size:26px;font-weight:800;margin-bottom:6px;">Mind's Craft Academy</h1>
+        <h1 style="font-size:22px;font-weight:800;margin-bottom:6px;">Minds' Craft Center</h1>
         <p style="opacity:0.75;font-size:14px;line-height:1.6;">Shaping minds. Building champions.</p>
       </div>
 
@@ -2007,7 +2232,7 @@ Router.register('about', async () => {
 
           <div class="card" style="margin-bottom:var(--space-3);">
             <div class="card-title" style="margin-bottom:var(--space-3);">Our Mission</div>
-            <p style="color:var(--color-text-secondary);font-size:14px;line-height:1.7;">At Mind's Craft Academy, we believe that martial arts is more than physical training — it is a holistic discipline that nurtures focus, confidence, respect and resilience in every student.</p>
+            <p style="color:var(--color-text-secondary);font-size:14px;line-height:1.7;">At Minds' Craft Center, we believe that martial arts is more than physical training — it is a holistic discipline that nurtures focus, confidence, respect and resilience in every student.</p>
             <p style="color:var(--color-text-secondary);font-size:14px;line-height:1.7;margin-top:var(--space-3);">Our expert trainers create a safe, structured and inspiring environment where every child can grow at their own pace, discover their strengths and become the best version of themselves.</p>
           </div>
 
@@ -2137,7 +2362,7 @@ Router.register('profile', async () => {
           <!-- Logout -->
           <button class="btn btn--danger btn--block" onclick="doLogout()">Sign Out</button>
 
-          <p style="text-align:center;font-size:11px;color:var(--color-text-muted);margin-top:var(--space-6);">Version 1.0 · Mind's Craft Parent Portal<br>© 2026 All rights reserved</p>
+          <p style="text-align:center;font-size:11px;color:var(--color-text-muted);margin-top:var(--space-6);">Version 1.0 · Minds' Craft Parent Portal<br>© 2026 All rights reserved</p>
         </div>
       </div>
     </div>`;
@@ -2521,6 +2746,29 @@ async function initApp() {
     }
   }, 1500);
 }
+
+// ── DEBUG: auto-probe trainer data right after home loads ──
+window._trainerProbeRan = false;
+window.debugTrainers = async function() {
+  const token = AuthService.getToken();
+  if (!token) { console.warn('[debug] Not logged in'); return; }
+  const BASE = SUPABASE_URL + '/rest/v1';
+  const h = { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + token };
+  const get = async (label, path) => {
+    const r = await fetch(BASE + '/' + path, { headers: h });
+    const d = await r.json().catch(() => null);
+    console.log('[DEBUG] === ' + label + ' [' + r.status + '] ===', JSON.stringify(d));
+    return d;
+  };
+  console.log('[DEBUG] ====== TRAINER PROBE START ======');
+  await get('ALL TRAINERS',             'trainers?select=id,full_name,status&limit=30');
+  await get('TRAINER_SESSIONS all',     'trainer_sessions?select=*&limit=100');
+  await get('TRAINER_SESSIONS+names',   'trainer_sessions?select=level_id,trainer_id,trainers(id,full_name),levels(id,name)&limit=100');
+  await get('ALL LEVELS',               'levels?select=id,name,course_id,trainer_id,order_num&order=name.asc&limit=50');
+  await get('LEVELS with name 7',       'levels?select=id,name,course_id,trainer_id&name=ilike.*7*&limit=20');
+  await get('TRAINERS+trainer_sessions','trainers?select=id,full_name,trainer_sessions(level_id)&limit=30');
+  console.log('[DEBUG] ====== TRAINER PROBE END ======');
+};
 
 // Start — works whether DOM is ready or not
 if (document.readyState === 'loading') {
