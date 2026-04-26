@@ -1,5 +1,5 @@
-// SW v20250426l — PKCE full flow: generate verifier at forgotPassword(), exchange at initApp()
-const SW_VERSION = '20250426l';
+// SW v20250426n — hash OTP exchanged via /auth/v1/verify before reset-password screen
+const SW_VERSION = '20250426n';
 
 self.addEventListener('install', () => {
   console.log('[SW] Installing version', SW_VERSION);
