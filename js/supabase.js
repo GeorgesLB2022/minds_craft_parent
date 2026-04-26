@@ -223,6 +223,35 @@ const AuthService = {
     }
   },
 
+  /**
+   * Update password using a recovery token (Option A flow).
+   * Called from the reset-password screen after Supabase redirects
+   * the user back with #access_token in the URL hash.
+   * @param {string} accessToken  — token extracted from the URL hash
+   * @param {string} newPassword  — new password chosen by the user
+   */
+  async updatePassword(accessToken, newPassword) {
+    try {
+      const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+        method: 'PUT',
+        headers: {
+          'apikey':        SUPABASE_ANON,
+          'Content-Type':  'application/json',
+          'Authorization': `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({ password: newPassword })
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const msg = data.message || data.msg || 'Password update failed.';
+        return { success: false, error: msg };
+      }
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: e.message || 'Network error.' };
+    }
+  },
+
   logout() {
     localStorage.removeItem(AuthService.SESSION_KEY);
     // Sign out from Supabase (best effort)
@@ -530,11 +559,46 @@ const DataService = {
   async getAllTrainers() {
     const token = AuthService.getToken();
     try {
+      // Fetch trainers with all new columns
       const rows = await sbGet(
-        `trainers?select=id,full_name,phone,email,status,created_at,updated_at&limit=50`,
+        `trainers?select=id,full_name,phone,email,status,created_at,title,start_year,start_date,description,avatar_url&limit=50`,
         token
       ).catch(() => []);
-      return (rows || []).map(t => this._mapTrainer(t));
+      if (!rows || !rows.length) return [];
+
+      // For each trainer, count students enrolled in their levels
+      const trainerIds = rows.map(r => r.id);
+      let studentCountMap = {};
+      try {
+        // Get all levels for these trainers
+        const allLevels = await sbGet(
+          `levels?trainer_id=in.(${trainerIds.join(',')})&select=id,trainer_id`,
+          token
+        ).catch(() => []);
+        const levelIds = allLevels.map(l => l.id);
+        if (levelIds.length > 0) {
+          // Count active enrollments per level
+          const enrollments = await sbGet(
+            `enrollments?level_id=in.(${levelIds.join(',')})&status=eq.active&select=id,level_id,student_id`,
+            token
+          ).catch(() => []);
+          // Build trainer → unique students map
+          const levelTrainerMap = {};
+          allLevels.forEach(l => { levelTrainerMap[l.id] = l.trainer_id; });
+          const trainerStudents = {};
+          enrollments.forEach(e => {
+            const tid = levelTrainerMap[e.level_id];
+            if (!tid) return;
+            if (!trainerStudents[tid]) trainerStudents[tid] = new Set();
+            trainerStudents[tid].add(e.student_id);
+          });
+          trainerIds.forEach(tid => {
+            studentCountMap[tid] = trainerStudents[tid] ? trainerStudents[tid].size : 0;
+          });
+        }
+      } catch (_) {}
+
+      return rows.map(t => this._mapTrainer(t, [], studentCountMap[t.id] || 0));
     } catch (e) {
       console.error('[DataService] getAllTrainers error:', e);
       return [];
@@ -546,18 +610,31 @@ const DataService = {
     const token = AuthService.getToken();
     try {
       const rows = await sbGet(
-        `trainers?id=eq.${trainerId}&select=id,full_name,phone,email,status,created_at,updated_at`,
+        `trainers?id=eq.${trainerId}&select=id,full_name,phone,email,status,created_at,title,start_year,start_date,description,avatar_url`,
         token
       );
       if (!rows || !rows[0]) return null;
 
-      // Get classes for this trainer
+      // Get levels (classes) for this trainer
       const levels = await sbGet(
         `levels?trainer_id=eq.${trainerId}&select=id,name,course_id,day_of_week,start_time`,
         token
       ).catch(() => []);
 
-      return this._mapTrainer(rows[0], levels);
+      // Count unique students enrolled in trainer's levels
+      let studentCount = 0;
+      try {
+        const levelIds = levels.map(l => l.id);
+        if (levelIds.length > 0) {
+          const enrollments = await sbGet(
+            `enrollments?level_id=in.(${levelIds.join(',')})&status=eq.active&select=student_id`,
+            token
+          ).catch(() => []);
+          studentCount = new Set(enrollments.map(e => e.student_id)).size;
+        }
+      } catch (_) {}
+
+      return this._mapTrainer(rows[0], levels, studentCount);
     } catch (e) { return null; }
   },
 
@@ -765,27 +842,48 @@ const DataService = {
   },
 
   // ── NOTIFICATIONS ─────────────────────────────────────────────
+  // ── NOTIFICATIONS (table: parent_notifications) ─────────────
+  // Populated by the admin portal via DB.pushParentNotification().
+  // The parent app reads its own rows (RLS: parent_user_id = auth.uid()).
+
   async getNotifications() {
     const token  = AuthService.getToken();
     const userId = AuthService.getUserId();
+    if (!userId) return [];
     try {
       const rows = await sbGet(
-        `notification_logs?user_id=eq.${userId}&select=id,title,body,type,is_read,created_at,link&order=created_at.desc&limit=30`,
+        `parent_notifications?parent_user_id=eq.${userId}&select=id,subject,body,type,is_read,created_at,metadata&order=created_at.desc&limit=50`,
         token
       ).catch(() => []);
-      return rows.map(n => this._mapNotification(n));
+      return (rows || []).map(n => this._mapNotification(n));
     } catch (e) { return []; }
   },
 
   async getUnreadCount() {
-    const notifs = await this.getNotifications();
-    return notifs.filter(n => n.unread).length;
+    const token  = AuthService.getToken();
+    const userId = AuthService.getUserId();
+    if (!userId) return 0;
+    try {
+      // Use HEAD + Prefer: count=exact for a lightweight count query
+      const r = await fetch(
+        `${SUPABASE_URL}/rest/v1/parent_notifications?parent_user_id=eq.${userId}&is_read=eq.false&select=id`,
+        { headers: { ...sbHeaders(token), 'Prefer': 'count=exact' } }
+      );
+      const countHeader = r.headers.get('content-range'); // e.g. "0-4/5"
+      if (countHeader) {
+        const total = parseInt(countHeader.split('/')[1], 10);
+        return isNaN(total) ? 0 : total;
+      }
+      // Fallback: parse body
+      const rows = await r.json().catch(() => []);
+      return Array.isArray(rows) ? rows.length : 0;
+    } catch (e) { return 0; }
   },
 
   async markRead(notifId) {
     const token = AuthService.getToken();
     try {
-      await sbPatch(`notification_logs?id=eq.${notifId}`, { is_read: true }, token);
+      await sbPatch(`parent_notifications?id=eq.${notifId}`, { is_read: true }, token);
     } catch (e) {}
     return true;
   },
@@ -793,8 +891,13 @@ const DataService = {
   async markAllRead() {
     const userId = AuthService.getUserId();
     const token  = AuthService.getToken();
+    if (!userId) return;
     try {
-      await sbPatch(`notification_logs?user_id=eq.${userId}&is_read=eq.false`, { is_read: true }, token);
+      await sbPatch(
+        `parent_notifications?parent_user_id=eq.${userId}&is_read=eq.false`,
+        { is_read: true },
+        token
+      );
     } catch (e) {}
     return true;
   },
@@ -833,19 +936,34 @@ const DataService = {
     };
   },
 
-  _mapTrainer(t, levels = []) {
+  _mapTrainer(t, levels = [], studentCount = 0) {
+    // avatar: prefer avatar_url from DB, fall back to null (UI.avatar handles initials fallback)
+    const avatar = t.avatar_url || null;
+
+    // title → shown as specialty / certifications
+    const title = t.title || '';
+
+    // Since: prefer start_date (exact date), fall back to start_year as Jan 1st
+    let sinceDate = null;
+    if (t.start_date) {
+      sinceDate = t.start_date; // 'YYYY-MM-DD'
+    } else if (t.start_year) {
+      sinceDate = `${t.start_year}-01-01`;
+    } else {
+      sinceDate = t.created_at || null;
+    }
+
     return {
       id:             t.id,
       name:           t.full_name || 'Trainer',
       initials:       this._initials(t.full_name),
-      specialty:      'Martial Arts Training',
-      bio:            '',
-      experience:     '',
-      certifications: [],
+      avatar:         avatar,
+      specialty:      title || 'Instructor',   // shown under name in list + hero
+      bio:            t.description || '',      // About card
+      certifications: title ? [title] : [],     // Certifications card → array with the title
       classes:        levels.map(l => l.name || 'Class'),
-      studentCount:   0,
-      rating:         4.8,
-      joinDate:       t.created_at,
+      studentCount:   studentCount,
+      sinceDate:      sinceDate,               // Since field (start_date or start_year)
       branch:         'Mind\'s Craft Academy',
       email:          t.email || '',
       phone:          t.phone || '',
@@ -870,7 +988,8 @@ const DataService = {
     if (dayName && dayName !== 'TBD') {
       const dayIndex = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].indexOf(dayName);
       if (dayIndex >= 0) {
-        const diff = (dayIndex - today.getDay() + 7) % 7 || 7;
+        // If today IS the class day, show today (not next week)
+        const diff = (dayIndex - today.getDay() + 7) % 7;
         nextSession = new Date(today);
         nextSession.setDate(today.getDate() + diff);
         nextSession = nextSession.toISOString().split('T')[0];
@@ -989,28 +1108,64 @@ const DataService = {
   },
 
   _mapNotification(n) {
-    // Map type from notification_logs
+    // parent_notifications uses: subject, body, type, is_read, created_at, metadata
+    // type values from admin: payment | absence | expiry | event | welcome | info | other
     const typeMap = {
-      'class': 'class', 'attendance': 'attend', 'assessment': 'assess',
-      'package': 'package', 'event': 'event', 'announcement': 'announce',
-      'system': 'announce'
+      // admin portal types → icon key
+      'payment':     'package',
+      'absence':     'attend',
+      'expiry':      'package',
+      'event':       'event',
+      'welcome':     'announce',
+      'info':        'announce',
+      'other':       'announce',
+      // legacy / fallback
+      'class':       'class',
+      'attendance':  'attend',
+      'assessment':  'assess',
+      'package':     'package',
+      'announcement':'announce',
+      'system':      'announce'
     };
     const type = typeMap[n.type] || 'announce';
+
+    // Human-readable time-ago
     const createdAt = n.created_at ? new Date(n.created_at) : new Date();
     const diffMs = Date.now() - createdAt.getTime();
+    const diffM  = Math.floor(diffMs / 60000);
     const diffH  = Math.floor(diffMs / 3600000);
     const diffD  = Math.floor(diffH / 24);
-    const timeStr = diffD > 0 ? `${diffD} day${diffD>1?'s':''} ago` : diffH > 0 ? `${diffH} hour${diffH>1?'s':''} ago` : 'Just now';
+    const timeStr = diffD > 0
+      ? `${diffD} day${diffD > 1 ? 's' : ''} ago`
+      : diffH > 0
+        ? `${diffH} hour${diffH > 1 ? 's' : ''} ago`
+        : diffM > 1
+          ? `${diffM} min ago`
+          : 'Just now';
+
+    // Derive linkTo from type
+    const linkMap = {
+      payment: 'subscriptions', expiry: 'subscriptions',
+      absence: 'kid-detail',   event:  'home'
+    };
+    const linkTo = linkMap[n.type] || 'home';
+
+    // Parse metadata JSON if string
+    let meta = {};
+    if (n.metadata) {
+      try { meta = typeof n.metadata === 'string' ? JSON.parse(n.metadata) : n.metadata; }
+      catch (_) {}
+    }
 
     return {
       id:      n.id,
       type:    type,
-      title:   n.title || 'Notification',
-      body:    n.body  || '',
+      title:   n.subject || 'Notification',     // subject field = title
+      body:    n.body    || '',
       time:    timeStr,
       unread:  !n.is_read,
-      kidId:   null,
-      linkTo:  n.link || 'home'
+      meta:    meta,                             // {student, package, amount, …}
+      linkTo:  linkTo
     };
   },
 
@@ -1056,3 +1211,124 @@ window.SUPABASE_URL = SUPABASE_URL;
 window.sbGet        = sbGet;
 window.sbPost       = sbPost;
 window.sbPatch      = sbPatch;
+
+// ============================================================
+// REALTIME SERVICE — Supabase WebSocket (no SDK required)
+// Listens for INSERT on parent_notifications filtered by
+// parent_user_id = current user's auth.uid().
+// Calls registered handlers when a new notification arrives.
+// ============================================================
+
+const RealtimeService = {
+  _ws:          null,
+  _handlers:    [],   // [{fn}]
+  _heartbeat:   null,
+  _reconnectT:  null,
+  _active:      false,
+  _ref:         0,    // incremental message ref counter
+
+  /**
+   * Start listening. Safe to call multiple times — reconnects if needed.
+   * @param {string} userId  — auth.uid() of the logged-in parent
+   * @param {string} token   — JWT access token
+   */
+  start(userId, token) {
+    if (this._ws && this._ws.readyState === WebSocket.OPEN) return; // already running
+    this._active = true;
+    this._userId = userId;
+    this._token  = token;
+    this._connect();
+  },
+
+  /** Stop and clean up completely */
+  stop() {
+    this._active = false;
+    clearInterval(this._heartbeat);
+    clearTimeout(this._reconnectT);
+    if (this._ws) { try { this._ws.close(); } catch (_) {} }
+    this._ws = null;
+    console.log('[Realtime] stopped');
+  },
+
+  /** Register a handler — called with a mapped notification object on new INSERT */
+  onNotification(fn) {
+    this._handlers.push(fn);
+  },
+
+  _connect() {
+    if (!this._active) return;
+    clearInterval(this._heartbeat);
+
+    // Supabase Realtime WebSocket endpoint
+    const wsUrl = SUPABASE_URL.replace('https://', 'wss://') + '/realtime/v1/websocket'
+      + `?apikey=${SUPABASE_ANON}&vsn=1.0.0`;
+
+    console.log('[Realtime] connecting…');
+    const ws = new WebSocket(wsUrl);
+    this._ws = ws;
+
+    ws.onopen = () => {
+      console.log('[Realtime] connected');
+      // 1. Join the Phoenix channel for postgres_changes
+      this._send({
+        topic:   'realtime:parent-notif-' + this._userId,
+        event:   'phx_join',
+        payload: {
+          config: {
+            broadcast:  { self: false },
+            presence:   { key:  '' },
+            postgres_changes: [{
+              event:  'INSERT',
+              schema: 'public',
+              table:  'parent_notifications',
+              filter: `parent_user_id=eq.${this._userId}`
+            }]
+          },
+          access_token: this._token
+        },
+        ref: String(++this._ref)
+      });
+
+      // 2. Heartbeat every 25 s to keep the WS alive
+      this._heartbeat = setInterval(() => {
+        this._send({ topic: 'phoenix', event: 'heartbeat', payload: {}, ref: String(++this._ref) });
+      }, 25000);
+    };
+
+    ws.onmessage = (evt) => {
+      let msg;
+      try { msg = JSON.parse(evt.data); } catch (_) { return; }
+
+      // postgres_changes INSERT event
+      if (
+        msg.event === 'postgres_changes' &&
+        msg.payload?.data?.type === 'INSERT' &&
+        msg.payload?.data?.record
+      ) {
+        const raw = msg.payload.data.record;
+        console.log('[Realtime] new notification received:', raw);
+        const mapped = DataService._mapNotification(raw);
+        this._handlers.forEach(fn => { try { fn(mapped); } catch (_) {} });
+      }
+    };
+
+    ws.onerror = (e) => console.warn('[Realtime] WS error', e);
+
+    ws.onclose = (e) => {
+      console.warn('[Realtime] closed, code=', e.code);
+      clearInterval(this._heartbeat);
+      if (this._active) {
+        // Reconnect with back-off (5 s)
+        this._reconnectT = setTimeout(() => this._connect(), 5000);
+      }
+    };
+  },
+
+  _send(obj) {
+    if (this._ws && this._ws.readyState === WebSocket.OPEN) {
+      this._ws.send(JSON.stringify(obj));
+    }
+  }
+};
+
+window.RealtimeService = RealtimeService;
