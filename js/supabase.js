@@ -225,25 +225,53 @@ const AuthService = {
 
   /**
    * Update password using a recovery token (Option A flow).
-   * Called from the reset-password screen after Supabase redirects
-   * the user back with #access_token in the URL hash.
-   * @param {string} accessToken  — token extracted from the URL hash
-   * @param {string} newPassword  — new password chosen by the user
+   * Supabase recovery emails send #access_token + #refresh_token in the hash.
+   * We must first exchange them via /token?grant_type=refresh_token to get a
+   * valid session JWT, then use THAT token to call PUT /auth/v1/user.
+   *
+   * @param {string} accessToken   — token extracted from URL hash (may be recovery OTP)
+   * @param {string} newPassword   — new password chosen by the user
+   * @param {string} [refreshToken] — refresh_token from URL hash (passed alongside)
    */
-  async updatePassword(accessToken, newPassword) {
+  async updatePassword(accessToken, newPassword, refreshToken) {
     try {
+      // ── Step 1: Exchange tokens to get a proper session JWT ─────────────
+      // The hash contains both access_token and refresh_token.
+      // Use refresh_token first (most reliable for recovery flow).
+      let sessionToken = accessToken;
+
+      const rtToUse = refreshToken || window._resetRefreshToken || null;
+      if (rtToUse) {
+        // Exchange refresh_token → fresh access_token
+        const exchR = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+          method: 'POST',
+          headers: { 'apikey': SUPABASE_ANON, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: rtToUse })
+        });
+        if (exchR.ok) {
+          const exchData = await exchR.json().catch(() => ({}));
+          if (exchData.access_token) {
+            sessionToken = exchData.access_token;
+            console.log('[Auth] Exchanged recovery token for session JWT ✓');
+          }
+        } else {
+          console.warn('[Auth] Token exchange failed, trying raw access_token directly');
+        }
+      }
+
+      // ── Step 2: Update password with the valid session JWT ──────────────
       const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
         method: 'PUT',
         headers: {
           'apikey':        SUPABASE_ANON,
           'Content-Type':  'application/json',
-          'Authorization': `Bearer ${accessToken}`
+          'Authorization': `Bearer ${sessionToken}`
         },
         body: JSON.stringify({ password: newPassword })
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) {
-        const msg = data.message || data.msg || 'Password update failed.';
+        const msg = data.message || data.msg || data.error_description || 'Password update failed.';
         return { success: false, error: msg };
       }
       return { success: true };
