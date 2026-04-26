@@ -1,5 +1,5 @@
-// SW v20250422b — scroll fix + package debug
-const SW_VERSION = '20250422b';
+// SW v20250426d — subscriptions: real DB schema (base_price, discount, duration, package_courses)
+const SW_VERSION = '20250426d';
 
 self.addEventListener('install', () => {
   console.log('[SW] Installing version', SW_VERSION);
