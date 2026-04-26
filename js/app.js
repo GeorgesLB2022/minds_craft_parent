@@ -2749,9 +2749,18 @@ function startRealtimeForCurrentUser() {
 // ============================
 async function initApp() {
   // ── Detect Supabase password-reset redirect ──────────────────
-  // When the parent clicks the email link, Supabase redirects to:
-  //   https://your-app.com/#access_token=xxx&type=recovery&...
-  // We intercept the hash BEFORE showing any screen.
+  //
+  // Supabase sends ONE of two formats depending on Auth settings:
+  //
+  // A) Legacy implicit flow (hash):
+  //    https://app.com/#access_token=xxx&refresh_token=yyy&type=recovery
+  //
+  // B) PKCE flow (query param — newer Supabase default):
+  //    https://app.com/?code=xxx
+  //    Must be exchanged via POST /auth/v1/token?grant_type=pkce
+  //    to get a real access_token + refresh_token.
+
+  // ── Format A: hash-based (legacy implicit) ───────────────────
   const hash = window.location.hash;
   if (hash && hash.includes('access_token') && hash.includes('type=recovery')) {
     const params       = new URLSearchParams(hash.replace(/^#/, ''));
@@ -2760,10 +2769,63 @@ async function initApp() {
     if (token) {
       window._resetToken        = token;
       window._resetRefreshToken = refreshToken || null;
-      // Clean the URL hash so tokens don't persist on refresh
       history.replaceState(null, '', window.location.pathname + window.location.search);
       await Router.navigate('reset-password', { token, refreshToken }, false);
-      return; // don't proceed to normal boot
+      return;
+    }
+  }
+
+  // ── Format B: PKCE code exchange ─────────────────────────────
+  // Supabase sends ?code=XXX when PKCE flow is active.
+  // We stored a code_verifier in sessionStorage at forgotPassword() time.
+  const urlParams   = new URLSearchParams(window.location.search);
+  const pkceCode    = urlParams.get('code');
+  if (pkceCode) {
+    // Clean URL immediately so the code isn't reused on refresh
+    history.replaceState(null, '', window.location.pathname);
+
+    const codeVerifier = sessionStorage.getItem('pkce_verifier') || '';
+    console.log('[Auth] PKCE code detected. verifier present:', !!codeVerifier);
+
+    try {
+      // Exchange the code + verifier for real tokens
+      const body = codeVerifier
+        ? { auth_code: pkceCode, code_verifier: codeVerifier }
+        : { auth_code: pkceCode };
+
+      const exchResp = await fetch(
+        `${SUPABASE_URL}/auth/v1/token?grant_type=pkce`,
+        {
+          method:  'POST',
+          headers: { 'apikey': SUPABASE_ANON, 'Content-Type': 'application/json' },
+          body:    JSON.stringify(body)
+        }
+      );
+      const exchData = await exchResp.json().catch(() => ({}));
+      console.log('[Auth] PKCE exchange →', exchResp.status, exchData);
+
+      // Clear stored verifier (one-time use)
+      sessionStorage.removeItem('pkce_verifier');
+
+      if (exchResp.ok && exchData.access_token) {
+        window._resetToken        = exchData.access_token;
+        window._resetRefreshToken = exchData.refresh_token || null;
+        await Router.navigate('reset-password', {
+          token:        exchData.access_token,
+          refreshToken: exchData.refresh_token || null
+        }, false);
+        return;
+      }
+
+      // Exchange failed — show error on reset-password screen with the raw code
+      console.warn('[Auth] PKCE exchange failed:', exchData);
+      // Fall through to show reset-password with empty token → "invalid link" UI
+      window._resetToken        = '';
+      window._resetRefreshToken = null;
+      await Router.navigate('reset-password', { token: '', refreshToken: null }, false);
+      return;
+    } catch (e) {
+      console.warn('[Auth] PKCE exchange error:', e.message);
     }
   }
 
