@@ -1,5 +1,5 @@
-// SW v20250426g — attendance always shown, new icon large padding, package name fix
-const SW_VERSION = '20250426g';
+// SW v20250426j — revert forgotPassword to original (no redirectTo — was blocking emails)
+const SW_VERSION = '20250426j';
 
 self.addEventListener('install', () => {
   console.log('[SW] Installing version', SW_VERSION);
