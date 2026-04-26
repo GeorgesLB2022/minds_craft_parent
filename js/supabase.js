@@ -7,6 +7,26 @@ const SUPABASE_URL  = 'https://xiatsareoruybucwkpkc.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhpYXRzYXJlb3J1eWJ1Y3drcGtjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzNjgzOTcsImV4cCI6MjA4OTk0NDM5N30.l14cNOUt1PKqL0hl5VL5wpt2JRB9rG_gQlJeYeJNIqU';
 
 // ============================================================
+// PKCE HELPERS  (used for password-reset flow)
+// ============================================================
+
+/** Generate a cryptographically random code_verifier (43-128 chars, base64url) */
+function _pkceGenerateVerifier() {
+  const array = new Uint8Array(48);
+  crypto.getRandomValues(array);
+  return btoa(String.fromCharCode(...array))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** Derive code_challenge = BASE64URL(SHA-256(verifier)) */
+async function _pkceChallenge(verifier) {
+  const enc  = new TextEncoder().encode(verifier);
+  const hash = await crypto.subtle.digest('SHA-256', enc);
+  return btoa(String.fromCharCode(...new Uint8Array(hash)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+// ============================================================
 // LOW-LEVEL HTTP HELPERS
 // ============================================================
 
@@ -208,58 +228,52 @@ const AuthService = {
   },
 
   /**
-   * Send forgot password email via Supabase Auth
+   * Send forgot password email via Supabase Auth.
+   * Generates a PKCE code_verifier + code_challenge so that when the reset
+   * link lands with ?code=…, we can exchange it properly.
    */
   async forgotPassword(email) {
     try {
+      // ── Generate PKCE pair ──────────────────────────────────────
+      const codeVerifier = _pkceGenerateVerifier();
+      const codeChallenge = await _pkceChallenge(codeVerifier);
+      // Persist verifier so initApp can use it after redirect
+      sessionStorage.setItem('pkce_verifier', codeVerifier);
+
       const r = await fetch(`${SUPABASE_URL}/auth/v1/recover`, {
         method: 'POST',
         headers: { 'apikey': SUPABASE_ANON, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim().toLowerCase() })
+        body: JSON.stringify({
+          email:          email.trim().toLowerCase(),
+          code_challenge: codeChallenge,
+          code_challenge_method: 'S256'
+        })
       });
+      const data = await r.json().catch(() => ({}));
+      console.log('[Auth] forgotPassword →', r.status, data);
       return { success: r.ok };
     } catch (e) {
+      console.warn('[Auth] forgotPassword error:', e.message);
       return { success: false };
     }
   },
 
   /**
-   * Update password using a recovery token (Option A flow).
-   * Supabase recovery emails send #access_token + #refresh_token in the hash.
-   * We must first exchange them via /token?grant_type=refresh_token to get a
-   * valid session JWT, then use THAT token to call PUT /auth/v1/user.
+   * Update password using a valid session access_token.
+   * By the time this is called, initApp has already exchanged the PKCE code
+   * (or legacy hash token) for a proper session JWT.
    *
-   * @param {string} accessToken   — token extracted from URL hash (may be recovery OTP)
+   * @param {string} accessToken   — valid session JWT
    * @param {string} newPassword   — new password chosen by the user
-   * @param {string} [refreshToken] — refresh_token from URL hash (passed alongside)
+   * @param {string} [refreshToken] — refresh_token (used as fallback if 401)
    */
   async updatePassword(accessToken, newPassword, refreshToken) {
     try {
-      // ── Step 1: Exchange tokens to get a proper session JWT ─────────────
-      // The hash contains both access_token and refresh_token.
-      // Use refresh_token first (most reliable for recovery flow).
+      // The accessToken here is already a valid session JWT (exchanged from
+      // PKCE code or extracted from the legacy hash). Use it directly.
+      // If it fails with 401, try refreshing via refresh_token as fallback.
       let sessionToken = accessToken;
 
-      const rtToUse = refreshToken || window._resetRefreshToken || null;
-      if (rtToUse) {
-        // Exchange refresh_token → fresh access_token
-        const exchR = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
-          method: 'POST',
-          headers: { 'apikey': SUPABASE_ANON, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refresh_token: rtToUse })
-        });
-        if (exchR.ok) {
-          const exchData = await exchR.json().catch(() => ({}));
-          if (exchData.access_token) {
-            sessionToken = exchData.access_token;
-            console.log('[Auth] Exchanged recovery token for session JWT ✓');
-          }
-        } else {
-          console.warn('[Auth] Token exchange failed, trying raw access_token directly');
-        }
-      }
-
-      // ── Step 2: Update password with the valid session JWT ──────────────
       const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
         method: 'PUT',
         headers: {
@@ -270,6 +284,43 @@ const AuthService = {
         body: JSON.stringify({ password: newPassword })
       });
       const data = await r.json().catch(() => ({}));
+
+      // If 401 and we have a refresh_token, try exchanging it first
+      if (!r.ok && (r.status === 401 || r.status === 403)) {
+        const rtToUse = refreshToken || window._resetRefreshToken || null;
+        if (rtToUse) {
+          console.log('[Auth] Access token rejected, trying refresh_token exchange…');
+          const exchR = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+            method: 'POST',
+            headers: { 'apikey': SUPABASE_ANON, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refresh_token: rtToUse })
+          });
+          if (exchR.ok) {
+            const exchData = await exchR.json().catch(() => ({}));
+            if (exchData.access_token) {
+              sessionToken = exchData.access_token;
+              // Retry with fresh token
+              const r2 = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+                method: 'PUT',
+                headers: {
+                  'apikey':        SUPABASE_ANON,
+                  'Content-Type':  'application/json',
+                  'Authorization': `Bearer ${sessionToken}`
+                },
+                body: JSON.stringify({ password: newPassword })
+              });
+              const data2 = await r2.json().catch(() => ({}));
+              if (!r2.ok) {
+                return { success: false, error: data2.message || data2.msg || 'Password update failed.' };
+              }
+              return { success: true };
+            }
+          }
+        }
+        const msg = data.message || data.msg || data.error_description || 'Password update failed.';
+        return { success: false, error: msg };
+      }
+
       if (!r.ok) {
         const msg = data.message || data.msg || data.error_description || 'Password update failed.';
         return { success: false, error: msg };
