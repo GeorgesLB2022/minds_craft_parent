@@ -374,6 +374,7 @@ async function doLogin() {
 
   if (result.success) {
     errorDiv.classList.add('hidden');
+    startRealtimeForCurrentUser();           // 🔔 start live notifications after login
     try {
       await Router.navigate('home');
     } catch(e) {
@@ -392,44 +393,237 @@ async function doLogin() {
 }
 
 // ============================
+// SCREEN: RESET PASSWORD
+// (landed here after clicking the email link — token is in window._resetToken)
+// ============================
+Router.register('reset-password', async ({ token } = {}) => {
+  const accessToken = token || window._resetToken || '';
+  const el = document.getElementById('screen-reset-password');
+
+  if (!accessToken) {
+    // No token — show error and redirect to forgot-password
+    el.innerHTML = `
+      <div style="display:flex;flex-direction:column;min-height:100vh;background:var(--color-bg);align-items:center;justify-content:center;padding:var(--space-6);">
+        <div style="text-align:center;">
+          <div style="font-size:48px;margin-bottom:var(--space-4);">⚠️</div>
+          <h2 style="font-size:20px;font-weight:700;margin-bottom:8px;">Invalid or expired link</h2>
+          <p style="color:var(--color-text-secondary);font-size:14px;line-height:1.6;margin-bottom:var(--space-5);">
+            This reset link is no longer valid. Please request a new one.
+          </p>
+          <button onclick="Router.navigate('forgot-password')" class="btn btn--primary">
+            Request New Link
+          </button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  el.innerHTML = `
+    <div style="display:flex;flex-direction:column;min-height:100vh;background:var(--color-bg);">
+      <div style="background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));padding:calc(var(--safe-top,0px) + 20px) var(--space-5) var(--space-6);text-align:center;">
+        <div style="width:64px;height:64px;border-radius:var(--radius-full);background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;margin:0 auto var(--space-3);">
+          <svg width="28" height="28" fill="none" viewBox="0 0 24 24">
+            <rect x="3" y="11" width="18" height="11" rx="2" stroke="white" stroke-width="2"/>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="white" stroke-width="2"/>
+          </svg>
+        </div>
+        <h2 style="color:white;font-size:22px;font-weight:800;margin-bottom:6px;">Set New Password</h2>
+        <p style="color:rgba(255,255,255,0.8);font-size:13px;">Choose a strong password for your account.</p>
+      </div>
+
+      <div style="flex:1;padding:var(--space-6) var(--space-5);">
+
+        <!-- New password -->
+        <div class="form-group" style="margin-bottom:var(--space-4);">
+          <label class="form-label">New Password</label>
+          <div class="input-wrap">
+            <span class="input-icon">
+              <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" stroke="currentColor" stroke-width="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="currentColor" stroke-width="2"/></svg>
+            </span>
+            <input type="password" id="rp-new" class="form-control has-icon"
+              placeholder="Minimum 8 characters"
+              onkeydown="if(event.key==='Enter') document.getElementById('rp-confirm').focus()">
+            <button class="input-icon-right" type="button"
+              onclick="this.previousElementSibling.type=this.previousElementSibling.type==='password'?'text':'password';this.innerHTML=this.previousElementSibling.type==='password'?'<svg width=18 height=18 fill=none viewBox=&quot;0 0 24 24&quot;><path d=&quot;M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z&quot; stroke=currentColor stroke-width=2/><circle cx=12 cy=12 r=3 stroke=currentColor stroke-width=2/></svg>':'<svg width=18 height=18 fill=none viewBox=&quot;0 0 24 24&quot;><path d=&quot;M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24&quot; stroke=currentColor stroke-width=2/><line x1=1 y1=1 x2=23 y2=23 stroke=currentColor stroke-width=2/></svg>'">
+              <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Confirm password -->
+        <div class="form-group" style="margin-bottom:var(--space-4);">
+          <label class="form-label">Confirm New Password</label>
+          <div class="input-wrap">
+            <span class="input-icon">
+              <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" stroke="currentColor" stroke-width="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="currentColor" stroke-width="2"/></svg>
+            </span>
+            <input type="password" id="rp-confirm" class="form-control has-icon"
+              placeholder="Repeat your password"
+              onkeydown="if(event.key==='Enter') doResetPassword('${accessToken}')">
+          </div>
+        </div>
+
+        <!-- Password strength hints -->
+        <ul style="font-size:12px;color:var(--color-text-muted);margin-bottom:var(--space-4);padding-left:16px;line-height:1.8;">
+          <li>At least 8 characters</li>
+          <li>Mix of letters and numbers recommended</li>
+        </ul>
+
+        <!-- Error -->
+        <div id="rp-error" class="hidden" style="background:var(--color-danger-bg);color:var(--color-danger);padding:10px 14px;border-radius:var(--radius-md);font-size:13px;margin-bottom:var(--space-3);"></div>
+
+        <button id="rp-btn" class="btn btn--primary btn--block" onclick="doResetPassword('${accessToken}')" style="height:54px;font-size:16px;">
+          Update Password
+        </button>
+      </div>
+    </div>`;
+});
+
+async function doResetPassword(accessToken) {
+  const newPwd     = document.getElementById('rp-new')?.value || '';
+  const confirmPwd = document.getElementById('rp-confirm')?.value || '';
+  const btn        = document.getElementById('rp-btn');
+  const errorDiv   = document.getElementById('rp-error');
+
+  // Validate
+  if (newPwd.length < 8) {
+    errorDiv.textContent = 'Password must be at least 8 characters.';
+    errorDiv.classList.remove('hidden'); return;
+  }
+  if (newPwd !== confirmPwd) {
+    errorDiv.textContent = 'Passwords do not match.';
+    errorDiv.classList.remove('hidden'); return;
+  }
+  errorDiv.classList.add('hidden');
+
+  // Loading
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner" style="width:22px;height:22px;border-width:2px;margin:0;"></div>';
+
+  const result = await AuthService.updatePassword(accessToken, newPwd);
+
+  btn.disabled = false;
+  btn.innerHTML = 'Update Password';
+
+  if (!result.success) {
+    errorDiv.textContent = result.error || 'Failed to update password. The link may have expired.';
+    errorDiv.classList.remove('hidden');
+    return;
+  }
+
+  // Success — clear token + show confirmation
+  window._resetToken = null;
+  document.getElementById('screen-reset-password').innerHTML = `
+    <div style="display:flex;flex-direction:column;min-height:100vh;background:var(--color-bg);align-items:center;justify-content:center;padding:var(--space-6);">
+      <div style="text-align:center;max-width:320px;">
+        <div style="width:80px;height:80px;border-radius:var(--radius-full);background:#D1FAE5;display:flex;align-items:center;justify-content:center;margin:0 auto var(--space-5);">
+          <svg width="36" height="36" fill="none" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" stroke="#059669" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <h2 style="font-size:22px;font-weight:800;color:var(--color-text);margin-bottom:10px;">Password updated!</h2>
+        <p style="color:var(--color-text-secondary);font-size:14px;line-height:1.7;">
+          Your password has been changed successfully. You can now sign in with your new password.
+        </p>
+        <button onclick="Router.navigate('login')" class="btn btn--primary btn--block" style="margin-top:var(--space-6);">
+          Sign In
+        </button>
+      </div>
+    </div>`;
+}
+
+// ============================
 // SCREEN: FORGOT PASSWORD
 // ============================
 Router.register('forgot-password', async () => {
   const el = document.getElementById('screen-forgot-password');
   el.innerHTML = `
-    <div style="min-height:100vh;background:var(--color-bg);">
+    <div style="display:flex;flex-direction:column;min-height:100vh;background:var(--color-bg);">
       ${UI.appBar('Reset Password', true)}
-      <div style="padding:var(--space-8) var(--space-5);">
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:var(--space-8) var(--space-5);">
+
+        <!-- Icon + heading -->
         <div style="text-align:center;margin-bottom:var(--space-6);">
-          <div style="width:64px;height:64px;border-radius:var(--radius-full);background:var(--color-primary-bg);display:flex;align-items:center;justify-content:center;margin:0 auto var(--space-3);">
-            <svg width="28" height="28" fill="none" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke="#6C3AE8" stroke-width="2"/><polyline points="22,6 12,13 2,6" stroke="#6C3AE8" stroke-width="2"/></svg>
+          <div style="width:72px;height:72px;border-radius:var(--radius-full);background:var(--color-primary-bg);display:flex;align-items:center;justify-content:center;margin:0 auto var(--space-4);">
+            <svg width="32" height="32" fill="none" viewBox="0 0 24 24">
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke="var(--color-primary)" stroke-width="2"/>
+              <polyline points="22,6 12,13 2,6" stroke="var(--color-primary)" stroke-width="2"/>
+            </svg>
           </div>
-          <h2 style="font-size:20px;font-weight:700;color:var(--color-text);margin-bottom:8px;">Forgot your password?</h2>
-          <p style="color:var(--color-text-secondary);font-size:14px;line-height:1.6;">Enter your email address and we'll send you a reset link.</p>
+          <h2 style="font-size:22px;font-weight:800;color:var(--color-text);margin-bottom:8px;">Forgot your password?</h2>
+          <p style="color:var(--color-text-secondary);font-size:14px;line-height:1.7;max-width:300px;margin:0 auto;">
+            Enter your email address and we'll send you a secure reset link.
+          </p>
         </div>
-        <div class="form-group">
+
+        <!-- Form -->
+        <div class="form-group" style="margin-bottom:var(--space-4);">
           <label class="form-label">Email Address</label>
           <div class="input-wrap">
             <span class="input-icon">
               <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke="currentColor" stroke-width="2"/><polyline points="22,6 12,13 2,6" stroke="currentColor" stroke-width="2"/></svg>
             </span>
-            <input type="email" id="fp-email" class="form-control has-icon" placeholder="your@email.com">
+            <input type="email" id="fp-email" class="form-control has-icon"
+              placeholder="your@email.com"
+              onkeydown="if(event.key==='Enter') doForgotPwd()">
           </div>
         </div>
-        <button class="btn btn--primary btn--block" onclick="doForgotPwd()" style="height:54px;font-size:16px;margin-top:var(--space-2);">Send Reset Link</button>
-        <div style="text-align:center;margin-top:var(--space-4);">
-          <button onclick="Router.navigate('login')" class="btn btn--ghost btn--sm">Back to Sign In</button>
+
+        <!-- Error message (hidden by default) -->
+        <div id="fp-error" class="hidden" style="background:var(--color-danger-bg);color:var(--color-danger);padding:10px 14px;border-radius:var(--radius-md);font-size:13px;margin-bottom:var(--space-3);"></div>
+
+        <button id="fp-btn" class="btn btn--primary btn--block" onclick="doForgotPwd()" style="height:54px;font-size:16px;">
+          Send Reset Link
+        </button>
+
+        <div style="text-align:center;margin-top:var(--space-5);">
+          <button onclick="Router.back()" class="btn btn--ghost btn--sm">← Back to Sign In</button>
         </div>
       </div>
     </div>`;
 });
 
 async function doForgotPwd() {
-  const email = document.getElementById('fp-email')?.value?.trim();
-  if (!email) { UI.toast('Please enter your email address.', '⚠️'); return; }
+  const emailInput = document.getElementById('fp-email');
+  const btn        = document.getElementById('fp-btn');
+  const errorDiv   = document.getElementById('fp-error');
+  const email      = emailInput?.value?.trim();
+
+  // Validate
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    errorDiv.textContent = 'Please enter a valid email address.';
+    errorDiv.classList.remove('hidden');
+    return;
+  }
+  errorDiv.classList.add('hidden');
+
+  // Loading state
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner" style="width:22px;height:22px;border-width:2px;margin:0;"></div>';
+
   const result = await AuthService.forgotPassword(email);
-  UI.toast('If this email is registered, you\'ll receive a reset link shortly.', '📧');
-  setTimeout(() => Router.navigate('login'), 2500);
+
+  btn.disabled = false;
+  btn.innerHTML = 'Send Reset Link';
+
+  // Always show the same message for security (don't reveal if email exists)
+  document.getElementById('screen-forgot-password').innerHTML = `
+    <div style="display:flex;flex-direction:column;min-height:100vh;background:var(--color-bg);">
+      ${UI.appBar('Reset Password', true)}
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:var(--space-8) var(--space-5);text-align:center;">
+        <div style="width:80px;height:80px;border-radius:var(--radius-full);background:#D1FAE5;display:flex;align-items:center;justify-content:center;margin:0 auto var(--space-5);">
+          <svg width="36" height="36" fill="none" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" stroke="#059669" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <h2 style="font-size:22px;font-weight:800;color:var(--color-text);margin-bottom:12px;">Check your email</h2>
+        <p style="color:var(--color-text-secondary);font-size:14px;line-height:1.7;max-width:320px;">
+          If <strong>${email}</strong> is registered, you'll receive a password reset link within a few minutes.
+        </p>
+        <p style="color:var(--color-text-muted);font-size:12px;margin-top:var(--space-3);line-height:1.6;">
+          Check your spam folder if you don't see it.<br>The link expires in <strong>60 minutes</strong>.
+        </p>
+        <button onclick="Router.navigate('login')" class="btn btn--primary" style="margin-top:var(--space-6);padding:14px 32px;">
+          Back to Sign In
+        </button>
+      </div>
+    </div>`;
 }
 
 // ============================
@@ -700,12 +894,21 @@ Router.register('kid-detail', async ({ kidId } = {}) => {
     kid.trainerId = classes[0].trainerId;
   }
 
-  // Fetch all subscriptions for this kid + trainer
-  const [allSubsRaw, trainer_] = await Promise.all([
+  // Collect unique trainer IDs across ALL enrolled classes
+  const uniqueTrainerIds = [...new Set(
+    classes.map(c => c.trainerId).filter(Boolean)
+  )];
+
+  // Fetch all subscriptions for this kid + all trainers in parallel
+  const [allSubsRaw, ...trainerResults] = await Promise.all([
     DataService.getKidSubscriptions(kid.id).catch(() => []),
-    kid.trainerId ? DataService.getTrainer(kid.trainerId).catch(() => null) : Promise.resolve(null)
+    ...uniqueTrainerIds.map(tid => DataService.getTrainer(tid).catch(() => null))
   ]);
-  const allSubs = allSubsRaw || [];
+  const allSubs  = allSubsRaw || [];
+  // allTrainers_ = array of trainer objects for all courses (de-duped, nulls removed)
+  const allTrainers_ = trainerResults.filter(Boolean);
+  // For backward-compat keep trainer_ as the first one
+  const trainer_ = allTrainers_[0] || null;
   // Latest allocation = first in list (ordered newest first)
   const sub_ = allSubs[0] || { sessionsLeft: 0, sessionsUsed: 0, sessionsTotal: 0, status: 'none', daysLeft: 0, packageName: 'No Package', plan: '—', startDate: null, expiryDate: null, autoRenew: false };
   const latestAssess = (assessments.length > 0) ? assessments[0] : null;
@@ -714,7 +917,7 @@ Router.register('kid-detail', async ({ kidId } = {}) => {
 
   const renderTab = (tabId) => {
     switch(tabId) {
-      case 'overview':     return renderOverviewTab(kid, classes, allSubs, attendance, latestAssess, trainer_);
+      case 'overview':     return renderOverviewTab(kid, classes, allSubs, attendance, latestAssess, allTrainers_);
       case 'attendance':   return renderAttendanceTab(attendance, classes, allSubs);
       case 'assessments':  return renderAssessmentsTab(assessments, kid);
       case 'classes':      return renderClassesTab(classes);
@@ -768,7 +971,7 @@ Router.register('kid-detail', async ({ kidId } = {}) => {
     </div>`;
 
   // Store data for tab switching
-  window._kidTabData = { kid, attSummary, assessments, classes, levelInfo, sub_, trainer_, attendance, allSubs };
+  window._kidTabData = { kid, attSummary, assessments, classes, levelInfo, sub_, trainer_, allTrainers_, attendance, allSubs };
 });
 
 function switchKidTab(tabId, btn) {
@@ -779,12 +982,12 @@ function switchKidTab(tabId, btn) {
   btn.classList.add('active');
   btn.style.borderBottomColor = 'var(--color-primary)';
 
-  const { kid, assessments, classes, levelInfo, trainer_, attendance, allSubs } = window._kidTabData;
+  const { kid, assessments, classes, levelInfo, trainer_, allTrainers_, attendance, allSubs } = window._kidTabData;
   const content = document.getElementById('kid-tab-content');
   const latestAssess = (assessments && assessments.length > 0) ? assessments[0] : null;
 
   switch(tabId) {
-    case 'overview':     content.innerHTML = renderOverviewTab(kid, classes, allSubs, attendance, latestAssess, trainer_); break;
+    case 'overview':     content.innerHTML = renderOverviewTab(kid, classes, allSubs, attendance, latestAssess, allTrainers_ || (trainer_ ? [trainer_] : [])); break;
     case 'attendance':   content.innerHTML = renderAttendanceTab(attendance, classes, allSubs); break;
     case 'assessments':  content.innerHTML = renderAssessmentsTab(assessments, kid); break;
     case 'classes':      content.innerHTML = renderClassesTab(classes); break;
@@ -796,7 +999,12 @@ function switchKidTab(tabId, btn) {
   initProgressRings();
 }
 
-function renderOverviewTab(kid, classes, allSubs, attendance, latestAssess, trainer) {
+function renderOverviewTab(kid, classes, allSubs, attendance, latestAssess, trainersArg) {
+  // trainersArg can be an array of trainers or a single trainer object
+  const trainers = Array.isArray(trainersArg)
+    ? trainersArg
+    : (trainersArg ? [trainersArg] : []);
+  const trainer = trainers[0] || null; // kept for backward-compat
   // Each course is matched to its own allocation via findAllocForCourse
   const hasLevelIds = (attendance || []).some(r => r.levelId);
 
@@ -814,21 +1022,23 @@ function renderOverviewTab(kid, classes, allSubs, attendance, latestAssess, trai
       ${courseRowsHTML}
     </div>
 
-    <!-- Trainer -->
-    ${trainer ? `
+    <!-- Trainers (one card per unique trainer across all courses) -->
+    ${trainers.length > 0 ? `
     <div class="card" style="margin-bottom:var(--space-3);">
       <div class="card-header">
-        <span class="card-title">Trainer</span>
-        <button onclick="Router.navigate('trainer-detail',{trainerId:'${trainer.id}'})" class="card-link">Profile</button>
+        <span class="card-title">Trainer${trainers.length > 1 ? 's' : ''}</span>
+        ${trainers.length === 1 ? `<button onclick="Router.navigate('trainer-detail',{trainerId:'${trainers[0].id}'})" class="card-link">Profile</button>` : ''}
       </div>
-      <div class="flex items-center gap-3">
-        ${UI.avatar(trainer.avatar, trainer.initials, 'md')}
-        <div>
-          <div style="font-size:15px;font-weight:600;color:var(--color-text);">${trainer.name}</div>
-          <div style="font-size:13px;color:var(--color-text-secondary);">${trainer.specialty}</div>
-          <div style="font-size:12px;color:var(--color-text-muted);margin-top:2px;">${trainer.experience} experience</div>
+      ${trainers.map(t => `
+      <div class="flex items-center gap-3" style="margin-bottom:${trainers.length > 1 ? 'var(--space-3)' : '0'};">
+        ${UI.avatar(t.avatar, t.initials, 'md')}
+        <div style="flex:1;">
+          <div style="font-size:15px;font-weight:600;color:var(--color-text);">${t.name}</div>
+          <div style="font-size:13px;color:var(--color-text-secondary);">${t.specialty}</div>
+          <div style="font-size:12px;color:var(--color-text-muted);margin-top:2px;">${t.experience} experience</div>
         </div>
-      </div>
+        ${trainers.length > 1 ? `<button onclick="Router.navigate('trainer-detail',{trainerId:'${t.id}'})" style="font-size:11px;padding:4px 10px;border:1px solid var(--color-border);border-radius:99px;background:transparent;color:var(--color-text-secondary);cursor:pointer;">Profile</button>` : ''}
+      </div>`).join('')}
     </div>` : ''}
 
     <!-- Latest Assessment -->
@@ -887,9 +1097,12 @@ function renderAttendanceTab(attendance, classes, allSubs) {
 
   // One card per course
   return safeClasses.map(cls => {
-    const safeSubs = allSubs || [];
-    // Build one block per allocated package (newest first)
-    const pkgBlocks = safeSubs.length > 0 ? safeSubs.map(sub => {
+    // Match this course to its specific allocated package
+    const matchedSub = findAllocForCourse(cls, allSubs || []);
+    const subList = matchedSub ? [matchedSub] : [];
+
+    // Build one block for the matched package
+    const pkgBlocks = subList.length > 0 ? subList.map(sub => {
       const pkgStart  = sub.startDate  ? new Date(sub.startDate  + 'T00:00:00') : null;
       const pkgEnd    = sub.expiryDate ? new Date(sub.expiryDate + 'T00:00:00') : null;
       const pkgLabel  = sub.packageName + (sub.startDate ? ` (${UI.formatDate(sub.startDate)} – ${UI.formatDate(sub.expiryDate)})` : '');
@@ -904,11 +1117,24 @@ function renderAttendanceTab(attendance, classes, allSubs) {
         return (!pkgStart || d >= pkgStart) && (!pkgEnd || d <= pkgEnd);
       });
 
-      const total   = clsAtt.length;
+      // Provisioned sessions = total scheduled days in the package window
+      const dayIndex = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].indexOf((cls.days || [])[0]);
+      let provisioned = clsAtt.length || 1;
+      if (pkgStart && pkgEnd && dayIndex >= 0) {
+        let cnt = 0;
+        const cur = new Date(pkgStart);
+        const startDiff = (dayIndex - cur.getDay() + 7) % 7;
+        cur.setDate(cur.getDate() + startDiff);
+        while (cur <= pkgEnd) { cnt++; cur.setDate(cur.getDate() + 7); }
+        if (cnt > 0) provisioned = cnt;
+      }
+
       const present = clsAtt.filter(r => r.status === 'present' || r.status === 'late').length;
       const absent  = clsAtt.filter(r => r.status === 'absent').length;
       const late    = clsAtt.filter(r => r.status === 'late').length;
-      const rate    = total > 0 ? Math.round((present / total) * 100) : 0;
+      const total   = clsAtt.length;
+      // Rate = attended / provisioned × 100 (more accurate than attended/recorded)
+      const rate    = provisioned > 0 ? Math.round((present / provisioned) * 100) : 0;
 
       const rows = clsAtt.map(r => `
         <div class="att-row">
@@ -928,7 +1154,7 @@ function renderAttendanceTab(attendance, classes, allSubs) {
           <div style="font-size:12px;font-weight:600;color:var(--color-text-secondary);margin-bottom:var(--space-2);">${pkgLabel}</div>
           ${pkgExpiredFlag ? `<div style="font-size:11px;padding:4px 8px;background:var(--color-warning);color:white;border-radius:var(--radius-sm);display:inline-block;margin-bottom:var(--space-2);">🔄 Renew Subscription</div>` : ''}
           <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center;margin-bottom:${total > 0 ? 'var(--space-3)' : '0'};">
-            <div><div style="font-size:15px;font-weight:800;color:${total > 0 ? (rate >= 80 ? 'var(--color-success)' : 'var(--color-warning)') : 'var(--color-text-muted)'};">${total > 0 ? rate + '%' : '—'}</div><div style="font-size:10px;color:var(--color-text-muted);">Rate</div></div>
+            <div><div style="font-size:15px;font-weight:800;color:${provisioned > 0 ? (rate >= 80 ? 'var(--color-success)' : 'var(--color-warning)') : 'var(--color-text-muted)'};">${provisioned > 0 ? rate + '%' : '—'}</div><div style="font-size:10px;color:var(--color-text-muted);">Rate</div></div>
             <div><div style="font-size:15px;font-weight:800;color:var(--color-success);">${present}</div><div style="font-size:10px;color:var(--color-text-muted);">Present</div></div>
             <div><div style="font-size:15px;font-weight:800;color:var(--color-danger);">${absent}</div><div style="font-size:10px;color:var(--color-text-muted);">Absent</div></div>
             <div><div style="font-size:15px;font-weight:800;color:var(--color-warning);">${late}</div><div style="font-size:10px;color:var(--color-text-muted);">Late</div></div>
@@ -987,8 +1213,7 @@ function renderClassesTab(classes) {
     <div class="class-card" onclick="Router.navigate('class-detail',{classId:'${c.id}'})">
       <div class="class-card__date-badge">
         <span class="class-card__date-day">${c.days[0]?.substring(0,3).toUpperCase()}</span>
-        <span class="class-card__date-num">${c.time.split(':')[0]}</span>
-        <span class="class-card__date-time">${c.time.includes('AM') ? 'AM' : 'PM'}</span>
+        <span class="class-card__date-num" style="font-size:13px;letter-spacing:-0.5px;">${c.time || 'TBD'}</span>
       </div>
       <div class="class-card__info">
         <div class="class-card__name">${c.name}</div>
@@ -1014,18 +1239,29 @@ function renderLevelTab(levelInfo, classes, kid) {
     return `<div class="empty-state"><div class="empty-state__title">No courses enrolled</div></div>`;
   }
 
-  // Shared level info (one enrollment → one levelInfo for now)
-  const levelLabel = (levelInfo && levelInfo.current) ? levelInfo.current : 'Active Student';
-  const levelNum   = (levelInfo && levelInfo.number)  ? levelInfo.number  : '—';
-  const levelTotal = (levelInfo && levelInfo.total)   ? levelInfo.total   : '—';
-  const milestones = (levelInfo && levelInfo.milestones) ? levelInfo.milestones : [];
+  // Each cls already carries its own level name (cls.name) and course name (cls.courseName).
+  // levelInfo holds milestones from the first enrollment; we show them only for
+  // the class whose level name matches levelInfo.current.
+  const sharedMilestones = (levelInfo && levelInfo.milestones) ? levelInfo.milestones : [];
 
   return safeClasses.map(cls => {
     const courseName  = cls.courseName || cls.name;
+    // The level name IS cls.name (e.g. "Robotics Level 1", "Speed Math Level 2")
+    // The course name is cls.courseName (e.g. "Robotics & STEM", "Speed Math")
+    const levelLabel  = cls.name || 'Active Student';
     const trainerName = cls.trainerName || '—';
     const days        = (cls.days || []).join(', ') || '—';
     const time        = cls.time || '—';
     const duration    = cls.duration || '—';
+
+    // Show milestones only for the class whose level matches levelInfo
+    const isMatchingLevel = levelInfo && levelInfo.current &&
+      levelLabel.toLowerCase() === (levelInfo.current || '').toLowerCase();
+    const milestones = isMatchingLevel ? sharedMilestones : [];
+
+    // Try to derive level number from the class name (e.g. "Level 2" → 2)
+    const levelNumMatch = levelLabel.match(/\b(\d+)\b/);
+    const levelNum = levelNumMatch ? levelNumMatch[1] : (levelInfo && levelInfo.number ? levelInfo.number : '—');
 
     return `
       <div class="card" style="margin-bottom:var(--space-4);">
@@ -1033,12 +1269,13 @@ function renderLevelTab(levelInfo, classes, kid) {
           <span class="card-title">${courseName}</span>
         </div>
 
+        <div class="info-row"><span class="info-row__key">Level</span><span class="info-row__val" style="font-weight:600;color:var(--color-primary);">${levelLabel}</span></div>
         <div class="info-row"><span class="info-row__key">Trainer</span><span class="info-row__val">${trainerName}</span></div>
         <div class="info-row"><span class="info-row__key">Day(s)</span><span class="info-row__val">${days}</span></div>
         <div class="info-row"><span class="info-row__key">Time</span><span class="info-row__val">${time}</span></div>
         <div class="info-row"><span class="info-row__key">Duration</span><span class="info-row__val">${duration}</span></div>
 
-        <!-- Current Level -->
+        <!-- Current Level visual -->
         <div style="margin-top:var(--space-3);padding-top:var(--space-3);border-top:1px solid var(--color-border);">
           <div style="font-size:13px;font-weight:600;color:var(--color-text-secondary);margin-bottom:var(--space-2);">Current Level</div>
           <div style="display:flex;align-items:center;gap:var(--space-3);">
@@ -1047,7 +1284,7 @@ function renderLevelTab(levelInfo, classes, kid) {
             </div>
             <div>
               <div style="font-size:16px;font-weight:700;color:var(--color-text);">${levelLabel}</div>
-              <div style="font-size:12px;color:var(--color-text-secondary);">Level ${levelNum} of ${levelTotal}</div>
+              <div style="font-size:12px;color:var(--color-text-secondary);">${courseName}</div>
             </div>
           </div>
         </div>
@@ -1433,17 +1670,14 @@ Router.register('trainers', async () => {
         <div class="trainer-card__spec">${t.specialty}</div>
         <div class="trainer-card__stats">
           <div class="trainer-card__stat">
-            <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" stroke="currentColor" stroke-width="2"/></svg>
-            ${t.rating}
-          </div>
-          <div class="trainer-card__stat">
             <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="2"/></svg>
-            ${t.studentCount} students
+            ${t.studentCount} student${t.studentCount !== 1 ? 's' : ''}
           </div>
+          ${t.sinceDate ? `
           <div class="trainer-card__stat">
-            <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><polyline points="12 6 12 12 16 14" stroke="currentColor" stroke-width="2"/></svg>
-            ${t.experience}
-          </div>
+            <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/><line x1="16" y1="2" x2="16" y2="6" stroke="currentColor" stroke-width="2"/><line x1="8" y1="2" x2="8" y2="6" stroke="currentColor" stroke-width="2"/></svg>
+            Since ${UI.formatDateShort(t.sinceDate)}
+          </div>` : ''}
         </div>
       </div>
       <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6" stroke="var(--color-text-muted)" stroke-width="2"/></svg>
@@ -1469,35 +1703,43 @@ Router.register('trainer-detail', async ({ trainerId } = {}) => {
   const el = document.getElementById('screen-trainer-detail');
   el.innerHTML = `
     <div style="display:flex;flex-direction:column;flex:1;min-height:0;background:var(--color-bg);">
-      <div class="detail-hero" style="text-align:center;">
+
+      <!-- Hero -->
+      <div class="detail-hero" style="position:relative;text-align:center;">
+        <button onclick="Router.back()" style="position:absolute;top:calc(var(--safe-top,0px) + 8px);left:12px;width:38px;height:38px;background:rgba(255,255,255,0.15);border:none;border-radius:var(--radius-full);display:flex;align-items:center;justify-content:center;cursor:pointer;color:white;">
+          <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M19 12H5M5 12l7-7M5 12l7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
         ${UI.avatar(t.avatar, t.initials, '2xl')}
         <h2 style="color:white;font-size:22px;font-weight:800;margin-top:var(--space-3);">${t.name}</h2>
-        <p style="color:rgba(255,255,255,0.75);margin-top:4px;">${t.specialty}</p>
+        <p style="color:rgba(255,255,255,0.8);margin-top:4px;font-size:14px;font-weight:500;">${t.specialty}</p>
+
+        <!-- Stats row: Students only (no rating, no yrs exp) -->
         <div style="display:flex;justify-content:center;gap:var(--space-4);margin-top:var(--space-4);">
           <div style="text-align:center;">
-            <div style="font-size:22px;font-weight:800;color:white;">${t.rating}</div>
-            <div style="font-size:11px;color:rgba(255,255,255,0.65);">Rating</div>
+            <div style="font-size:26px;font-weight:800;color:white;">${t.studentCount}</div>
+            <div style="font-size:11px;color:rgba(255,255,255,0.65);text-transform:uppercase;letter-spacing:0.5px;">Students</div>
           </div>
+          ${t.sinceDate ? `
           <div style="width:1px;background:rgba(255,255,255,0.2);"></div>
           <div style="text-align:center;">
-            <div style="font-size:22px;font-weight:800;color:white;">${t.studentCount}</div>
-            <div style="font-size:11px;color:rgba(255,255,255,0.65);">Students</div>
-          </div>
-          <div style="width:1px;background:rgba(255,255,255,0.2);"></div>
-          <div style="text-align:center;">
-            <div style="font-size:22px;font-weight:800;color:white;">${t.experience.replace(' years','')}</div>
-            <div style="font-size:11px;color:rgba(255,255,255,0.65);">Yrs Exp.</div>
-          </div>
+            <div style="font-size:18px;font-weight:800;color:white;">${UI.formatDateShort(t.sinceDate)}</div>
+            <div style="font-size:11px;color:rgba(255,255,255,0.65);text-transform:uppercase;letter-spacing:0.5px;">Since</div>
+          </div>` : ''}
         </div>
       </div>
 
       <div class="scroll-content">
         <div class="page-content">
+
+          <!-- About (linked to description field) -->
+          ${t.bio ? `
           <div class="card" style="margin-bottom:var(--space-3);">
             <div class="card-title" style="margin-bottom:var(--space-2);">About</div>
             <p style="color:var(--color-text-secondary);font-size:14px;line-height:1.7;">${t.bio}</p>
-          </div>
+          </div>` : ''}
 
+          <!-- Certifications (= title field) -->
+          ${t.certifications.length > 0 ? `
           <div class="card" style="margin-bottom:var(--space-3);">
             <div class="card-title" style="margin-bottom:var(--space-3);">Certifications</div>
             ${t.certifications.map(c => `
@@ -1505,24 +1747,32 @@ Router.register('trainer-detail', async ({ trainerId } = {}) => {
                 <div style="width:32px;height:32px;border-radius:var(--radius-full);background:var(--color-success-bg);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
                   <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" stroke="var(--color-success)" stroke-width="2.5"/></svg>
                 </div>
-                <span style="font-size:14px;color:var(--color-text);">${c}</span>
+                <span style="font-size:14px;color:var(--color-text);font-weight:500;">${c}</span>
               </div>`).join('')}
-          </div>
+          </div>` : ''}
 
+          <!-- Classes -->
+          ${t.classes.length > 0 ? `
           <div class="card" style="margin-bottom:var(--space-3);">
             <div class="card-title" style="margin-bottom:var(--space-3);">Classes</div>
             ${t.classes.map(c => `
               <div style="display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2);">
-                <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" stroke="var(--color-primary)" stroke-width="2"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" stroke="var(--color-primary)" stroke-width="2"/></svg>
-                <span style="font-size:14px;">${c}</span>
+                <div style="width:28px;height:28px;border-radius:var(--radius-md);background:var(--color-primary-bg);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                  <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" stroke="var(--color-primary)" stroke-width="2"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" stroke="var(--color-primary)" stroke-width="2"/></svg>
+                </div>
+                <span style="font-size:14px;color:var(--color-text);">${c}</span>
               </div>`).join('')}
-          </div>
+          </div>` : ''}
 
+          <!-- Info card -->
           <div class="card">
             <div class="card-title" style="margin-bottom:var(--space-2);">Info</div>
             <div class="info-row"><span class="info-row__key">Branch</span><span class="info-row__val">${t.branch}</span></div>
-            <div class="info-row"><span class="info-row__key">Since</span><span class="info-row__val">${UI.formatDate(t.joinDate)}</span></div>
+            ${t.sinceDate ? `<div class="info-row"><span class="info-row__key">Since</span><span class="info-row__val">${UI.formatDate(t.sinceDate)}</span></div>` : ''}
+            ${t.email ? `<div class="info-row"><span class="info-row__key">Email</span><span class="info-row__val" style="word-break:break-all;">${t.email}</span></div>` : ''}
+            ${t.phone ? `<div class="info-row"><span class="info-row__key">Phone</span><span class="info-row__val">${t.phone}</span></div>` : ''}
           </div>
+
         </div>
       </div>
     </div>`;
@@ -1831,7 +2081,7 @@ Router.register('profile', async () => {
           <!-- Account -->
           <p style="font-size:11px;font-weight:700;color:var(--color-text-muted);letter-spacing:0.5px;margin-bottom:var(--space-2);">ACCOUNT</p>
           <div class="settings-section" style="margin-bottom:var(--space-5);">
-            <div class="settings-row" onclick="UI.toast('Password change email sent to your registered address.','📧')">
+            <div class="settings-row" onclick="Router.navigate('forgot-password')">
               <div class="settings-row__icon" style="background:var(--color-primary-bg);">
                 <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" stroke="var(--color-primary)" stroke-width="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="var(--color-primary)" stroke-width="2"/></svg>
               </div>
@@ -1851,19 +2101,25 @@ Router.register('profile', async () => {
           <p style="font-size:11px;font-weight:700;color:var(--color-text-muted);letter-spacing:0.5px;margin-bottom:var(--space-2);">NOTIFICATIONS</p>
           <div class="settings-section" style="margin-bottom:var(--space-5);">
             ${[
-              ['Class Reminders', true],
-              ['Attendance Alerts', true],
-              ['Assessment Updates', true],
-              ['Package Reminders', false],
-              ['Events & Announcements', true]
-            ].map(([label, val]) => `
+              ['class_reminders',       'Class Reminders'],
+              ['attendance_alerts',     'Attendance Alerts'],
+              ['assessment_updates',    'Assessment Updates'],
+              ['package_reminders',     'Package & Payment Reminders'],
+              ['events_announcements',  'Events & Announcements']
+            ].map(([key, label]) => {
+              // Default = true for ALL; read saved preference from localStorage
+              const stored = localStorage.getItem('notif_' + key);
+              const isOn   = stored === null ? true : stored === 'true';
+              return `
               <div class="settings-row" style="cursor:default;">
                 <span class="settings-row__label">${label}</span>
                 <label class="toggle">
-                  <input type="checkbox" ${val ? 'checked' : ''} onchange="UI.toast(this.checked ? '${label} enabled.' : '${label} disabled.', '🔔')">
+                  <input type="checkbox" ${isOn ? 'checked' : ''}
+                    onchange="saveNotifPref('${key}', this.checked); UI.toast(this.checked ? '${label} activé.' : '${label} désactivé.', '🔔')">
                   <span class="toggle-slider"></span>
                 </label>
-              </div>`).join('')}
+              </div>`;
+            }).join('')}
           </div>
 
           <!-- PWA Install -->
@@ -1892,27 +2148,76 @@ Router.register('profile', async () => {
 // ============================
 
 /**
+ * Notification preferences — persisted in localStorage.
+ * Keys: class_reminders | attendance_alerts | assessment_updates |
+ *       package_reminders | events_announcements
+ * Default: ALL true (first launch or if key missing).
+ */
+function saveNotifPref(key, value) {
+  localStorage.setItem('notif_' + key, value ? 'true' : 'false');
+}
+
+function getNotifPref(key) {
+  const stored = localStorage.getItem('notif_' + key);
+  return stored === null ? true : stored === 'true'; // default ON
+}
+
+/** Initialise all notification prefs to true on first launch */
+(function initNotifPrefs() {
+  const keys = [
+    'class_reminders', 'attendance_alerts', 'assessment_updates',
+    'package_reminders', 'events_announcements'
+  ];
+  keys.forEach(k => {
+    if (localStorage.getItem('notif_' + k) === null) {
+      localStorage.setItem('notif_' + k, 'true');
+    }
+  });
+})();
+
+/**
  * Count how many times a given weekday (e.g. "Thursday") occurs
  * from today (inclusive) up to and including endDate.
  * Returns 0 if endDate is in the past or dayName is unknown.
  */
-function calcSessionsLeft(dayName, endDate) {
+/**
+ * Count how many sessions remain from today (inclusive) to endDate.
+ * classTime: optional HH:MM string — if today IS the class day and the
+ * session has already passed, we start counting from next week.
+ */
+function calcSessionsLeft(dayName, endDate, classTime) {
   if (!dayName || dayName === 'TBD') return '—';
   const dayIndex = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].indexOf(dayName);
   if (dayIndex < 0) return '—';
-  const today = new Date();
+  const now  = new Date();
+  const today = new Date(now);
   today.setHours(0, 0, 0, 0);
   const end = endDate ? new Date(endDate) : null;
-  if (!end || end < today) return 0;
-  end.setHours(0, 0, 0, 0);
-  // Find first occurrence of dayIndex on/after today
-  let count = 0;
+  if (!end) return '—';
+  end.setHours(23, 59, 59, 0);
+  if (end < today) return 0;
+
+  // Determine start cursor: today if class day is today AND session hasn't started yet
   const cursor = new Date(today);
-  const diff = (dayIndex - cursor.getDay() + 7) % 7;
+  const diff = (dayIndex - today.getDay() + 7) % 7;
   cursor.setDate(cursor.getDate() + diff);
-  while (cursor <= end) {
+
+  // If today is the class day, check if the session time has already passed
+  if (diff === 0 && classTime) {
+    const [hh, mm] = classTime.split(':').map(Number);
+    const sessionStart = new Date(today);
+    sessionStart.setHours(hh, mm, 0, 0);
+    if (now >= sessionStart) {
+      // Session already started/passed today — skip to next week
+      cursor.setDate(cursor.getDate() + 7);
+    }
+  }
+
+  let count = 0;
+  const c = new Date(cursor);
+  while (c <= end) {
     count++;
-    cursor.setDate(cursor.getDate() + 7);
+    c.setDate(c.getDate() + 7);
   }
   return count;
 }
@@ -1974,10 +2279,22 @@ function buildCourseRow(cls, attendance, allSubs, hasLevelIds) {
     : null;
   const pkgColor = sub && sub.daysLeft <= 7 ? 'var(--color-warning)' : 'var(--color-text-muted)';
 
-  // Next session label
-  const nextLabel = cls.nextSession
-    ? `${(cls.nextSessionDay || '').substring(0, 3)} ${new Date(cls.nextSession).getDate()} · ${cls.time}`
-    : (cls.time || '—');
+  // Next session label — show "Today · HH:MM" if the next session is today
+  let nextLabel;
+  if (cls.nextSession) {
+    const nsDate = new Date(cls.nextSession);
+    const todayDate = new Date();
+    const isToday = nsDate.getFullYear() === todayDate.getFullYear() &&
+                    nsDate.getMonth()    === todayDate.getMonth()    &&
+                    nsDate.getDate()     === todayDate.getDate();
+    if (isToday) {
+      nextLabel = `Today · ${cls.time}`;
+    } else {
+      nextLabel = `${(cls.nextSessionDay || '').substring(0, 3)} ${nsDate.getDate()} · ${cls.time}`;
+    }
+  } else {
+    nextLabel = cls.time || '—';
+  }
 
   if (pkgExpired) {
     return `
@@ -2009,10 +2326,24 @@ function buildCourseRow(cls, attendance, allSubs, hasLevelIds) {
     if (!d) return true;
     return (!pkgStart || d >= pkgStart) && (!pkgEnd || d <= pkgEnd);
   });
-  const attTotal   = clsAtt.length;
+  // Provisioned sessions = total scheduled sessions in the package window
+  const provisionedSessions = (pkgStart && pkgEnd)
+    ? (() => {
+        const dayIndex = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].indexOf(cls.days[0]);
+        if (dayIndex < 0) return 0;
+        let cnt = 0;
+        const cursor = new Date(pkgStart);
+        const startDiff = (dayIndex - cursor.getDay() + 7) % 7;
+        cursor.setDate(cursor.getDate() + startDiff);
+        while (cursor <= pkgEnd) { cnt++; cursor.setDate(cursor.getDate() + 7); }
+        return cnt;
+      })()
+    : clsAtt.length || 1;
+
   const attPresent = clsAtt.filter(r => r.status === 'present' || r.status === 'late').length;
-  const attRate    = attTotal > 0 ? Math.round((attPresent / attTotal) * 100) : null;
-  const sessLeft   = calcSessionsLeft(cls.days[0], pkgEnd);
+  // Attendance % = (attended / provisioned total) × 100
+  const attRate    = provisionedSessions > 0 ? Math.round((attPresent / provisionedSessions) * 100) : null;
+  const sessLeft   = calcSessionsLeft(cls.days[0], pkgEnd, cls.time);
   const sessColor  = (sessLeft !== '—' && sessLeft <= 2) ? 'var(--color-warning)' : 'var(--color-primary)';
 
   return `
@@ -2077,6 +2408,8 @@ function initProgressRings() {
 
 function doLogout() {
   if (confirm('Are you sure you want to sign out?')) {
+    RealtimeService.stop();                  // 🔕 stop live notifications
+    window._realtimeStarted = false;
     AuthService.logout();
     Router.history = [];
     Router.navigate('login', {}, false);
@@ -2099,15 +2432,89 @@ function triggerInstall() {
 }
 
 // ============================
+// REALTIME — notifications live
+// ============================
+
+/**
+ * Start the Supabase Realtime subscription for the logged-in parent.
+ * Safe to call multiple times; RealtimeService deduplicates open sockets.
+ */
+function startRealtimeForCurrentUser() {
+  const userId = AuthService.getUserId();
+  const token  = AuthService.getToken();
+  if (!userId || !token) return;
+
+  // Register handler only once (avoid duplicates on re-navigate)
+  if (window._realtimeStarted) {
+    RealtimeService.stop();
+  }
+  window._realtimeStarted = true;
+
+  RealtimeService.onNotification((notif) => {
+    // 1. Refresh badge count
+    NavManager.refreshBadge();
+
+    // 2. Show in-app toast with icon
+    const iconMap = {
+      package: '💳', attend: '📋', class: '📚',
+      assess: '⭐', event: '📅', announce: '📢'
+    };
+    const icon = iconMap[notif.type] || '🔔';
+    UI.toast(`${notif.title}${notif.body ? '\n' + notif.body : ''}`, icon);
+
+    // 3. If the Notifications screen is currently visible, prepend the new row
+    const notifList = document.querySelector('#screen-notifications .scroll-content > div');
+    if (notifList) {
+      // Remove "empty state" if present
+      const empty = notifList.querySelector('.empty-state');
+      if (empty) empty.remove();
+
+      const row = document.createElement('div');
+      row.className = `notif-item unread`;
+      row.setAttribute('onclick',
+        `markNotifRead('${notif.id}', this); Router.navigate('${notif.linkTo || 'home'}')`);
+      row.innerHTML = `
+        <div class="notif-icon notif-icon--${notif.type}">${getNotifIcon(notif.type)}</div>
+        <div class="notif-content">
+          <div class="notif-title">${notif.title}</div>
+          <div class="notif-body">${notif.body}</div>
+          <div class="notif-time">Just now</div>
+        </div>
+        <div class="notif-dot"></div>`;
+      notifList.prepend(row);
+    }
+  });
+
+  RealtimeService.start(userId, token);
+}
+
+// ============================
 // APP INITIALIZATION
 // ============================
 async function initApp() {
-  // Show splash immediately
+  // ── Detect Supabase password-reset redirect ──────────────────
+  // When the parent clicks the email link, Supabase redirects to:
+  //   https://your-app.com/#access_token=xxx&type=recovery&...
+  // We intercept the hash BEFORE showing any screen.
+  const hash = window.location.hash;
+  if (hash && hash.includes('access_token') && hash.includes('type=recovery')) {
+    const params = new URLSearchParams(hash.replace(/^#/, ''));
+    const token  = params.get('access_token');
+    if (token) {
+      window._resetToken = token;
+      // Clean the URL hash so it doesn't persist on refresh
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+      await Router.navigate('reset-password', { token }, false);
+      return; // don't proceed to normal boot
+    }
+  }
+
+  // ── Normal boot ──────────────────────────────────────────────
   await Router.navigate('splash', {}, false);
 
-  // After short delay, check auth and redirect
   setTimeout(async () => {
     if (AuthService.isLoggedIn()) {
+      startRealtimeForCurrentUser();          // 🔔 start live notifications
       await Router.navigate('home', {}, false);
     } else {
       await Router.navigate('login', {}, false);
