@@ -20,7 +20,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="icons/icon-96.png">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=20250426j">
+  <link rel="stylesheet" href="css/app.css?v=20250426l">
   <title>Minds' Craft — Parent Portal</title>
   <!-- Cache control: always fetch fresh HTML -->
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -40,7 +40,7 @@
 <script>
 (function() {
   'use strict';
-  var APP_VERSION = '20250426j'; // revert forgotPassword — restore email sending
+  var APP_VERSION = '20250426l'; // PKCE full flow: verifier at forgotPassword, exchange at initApp
 
   // 1. Wipe ALL browser caches immediately
   if (window.caches) {
@@ -130,16 +130,16 @@
 </div>
 
 <!-- App scripts — version query string forces browser to re-download on every publish -->
-<script src="js/supabase.js?v=20250426j"></script>
-<script src="js/router.js?v=20250426j"></script>
-<script src="js/app.js?v=20250426j"></script>
+<script src="js/supabase.js?v=20250426l"></script>
+<script src="js/router.js?v=20250426l"></script>
+<script src="js/app.js?v=20250426l"></script>
 
 <!-- Register fresh SW + boot app -->
 <script>
 (function() {
   if ('serviceWorker' in navigator) {
     // Force SW update check on every page load
-    navigator.serviceWorker.register('sw.js?v=20250426j')
+    navigator.serviceWorker.register('sw.js?v=20250426l')
       .then(function(reg) {
         console.log('[SW] Ready:', reg.scope);
         // Immediately activate any waiting SW
