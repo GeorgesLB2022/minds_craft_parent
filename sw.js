@@ -1,5 +1,5 @@
-// SW v20250426o — forgotPassword: reverted to simple POST (no PKCE params) + /verify OTP exchange
-const SW_VERSION = '20250426o';
+// SW v20250426p — fix parent.name crash + smart JWT/OTP detection for reset link
+const SW_VERSION = '20250426p';
 
 self.addEventListener('install', () => {
   console.log('[SW] Installing version', SW_VERSION);
