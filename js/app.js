@@ -718,7 +718,7 @@ Router.register('home', async () => {
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-4);">
             <div>
               <p style="color:rgba(255,255,255,0.65);font-size:12px;font-weight:500;letter-spacing:0.5px;">GOOD ${getTimeOfDay()}</p>
-              <h1 style="color:white;font-size:22px;font-weight:800;">${parent.name.split(' ')[0]} 👋</h1>
+              <h1 style="color:white;font-size:22px;font-weight:800;">${(parent.name || parent.fullName || 'Welcome').split(' ')[0]} 👋</h1>
             </div>
             <div style="display:flex;align-items:center;gap:var(--space-2);">
               <button class="icon-btn" onclick="Router.navigate('notifications')" style="background:rgba(255,255,255,0.15);color:white;" aria-label="Notifications">
@@ -2761,17 +2761,35 @@ async function initApp() {
   //    to get a real access_token + refresh_token.
 
   // ── Format A: hash-based — template sends #access_token={{ .Token }}&type=recovery
-  // {{ .Token }} is a short OTP, NOT a JWT — must be exchanged via /verify first.
+  // {{ .Token }} is a short OTP — try using it directly as Bearer first,
+  // and if that fails exchange via /verify.
   const hash = window.location.hash;
   if (hash && hash.includes('access_token') && hash.includes('type=recovery')) {
-    const params   = new URLSearchParams(hash.replace(/^#/, ''));
-    const otpToken = params.get('access_token');   // short OTP from {{ .Token }}
+    const params        = new URLSearchParams(hash.replace(/^#/, ''));
+    const otpToken      = params.get('access_token');
+    const hashRefresh   = params.get('refresh_token') || null;
     history.replaceState(null, '', window.location.pathname + window.location.search);
 
     if (otpToken) {
-      console.log('[Auth] Recovery OTP detected, length:', otpToken.length, 'exchanging via /verify…');
+      console.log('[Auth] Recovery token detected, length:', otpToken.length,
+        'segments:', otpToken.split('.').length);
+
+      // Check if it looks like a real JWT (3 dot-separated segments)
+      const isJWT = otpToken.split('.').length === 3;
+
+      if (isJWT) {
+        // It IS a proper JWT — use directly
+        console.log('[Auth] Token is JWT — using directly');
+        window._resetToken        = otpToken;
+        window._resetRefreshToken = hashRefresh;
+        await Router.navigate('reset-password', { token: otpToken, refreshToken: hashRefresh }, false);
+        return;
+      }
+
+      // Not a JWT — try /verify to exchange OTP → real session
+      console.log('[Auth] Token is OTP — exchanging via /verify…');
       try {
-        // Exchange OTP → real session JWT via /auth/v1/verify
+        // Strategy 1: /verify with just token + type
         const vResp = await fetch(`${SUPABASE_URL}/auth/v1/verify`, {
           method:  'POST',
           headers: { 'apikey': SUPABASE_ANON, 'Content-Type': 'application/json' },
@@ -2780,21 +2798,33 @@ async function initApp() {
         const vData = await vResp.json().catch(() => ({}));
         console.log('[Auth] /verify →', vResp.status, vData);
 
-        const realToken   = vData.access_token  || null;
-        const refreshToken = vData.refresh_token || null;
-
-        if (realToken) {
-          window._resetToken        = realToken;
-          window._resetRefreshToken = refreshToken;
-          await Router.navigate('reset-password', { token: realToken, refreshToken }, false);
+        if (vResp.ok && vData.access_token) {
+          window._resetToken        = vData.access_token;
+          window._resetRefreshToken = vData.refresh_token || null;
+          await Router.navigate('reset-password', {
+            token: vData.access_token, refreshToken: vData.refresh_token || null
+          }, false);
           return;
         }
-        // verify failed — show invalid link screen
-        console.warn('[Auth] /verify failed:', vData);
+
+        // Strategy 2: use OTP directly as Bearer (some Supabase versions allow this)
+        console.log('[Auth] /verify failed, trying OTP as Bearer directly…');
+        const testResp = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+          headers: { 'apikey': SUPABASE_ANON, 'Authorization': `Bearer ${otpToken}` }
+        });
+        if (testResp.ok) {
+          console.log('[Auth] OTP works as Bearer directly!');
+          window._resetToken        = otpToken;
+          window._resetRefreshToken = hashRefresh;
+          await Router.navigate('reset-password', { token: otpToken, refreshToken: hashRefresh }, false);
+          return;
+        }
+
+        console.warn('[Auth] All strategies failed. /verify error:', vData);
         await Router.navigate('reset-password', { token: '', refreshToken: null }, false);
         return;
       } catch (e) {
-        console.warn('[Auth] /verify error:', e.message);
+        console.warn('[Auth] Token exchange error:', e.message);
         await Router.navigate('reset-password', { token: '', refreshToken: null }, false);
         return;
       }
