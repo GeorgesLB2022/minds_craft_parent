@@ -251,9 +251,8 @@ Router.register('splash', async () => {
   el.innerHTML = `
     <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;background:linear-gradient(160deg,#0F172A 0%,#1E0A4A 100%);">
       <div style="text-align:center;padding:var(--space-6);">
-        <!-- Full logo on white pill card so it shows clearly on dark background -->
-        <div style="background:white;border-radius:24px;padding:20px 28px;margin:0 auto var(--space-5);box-shadow:0 16px 48px rgba(0,0,0,0.4);display:inline-block;">
-          <img src="icons/logo-dark.png" alt="Minds' Craft" style="width:180px;height:auto;display:block;">
+        <div style="background:white;border-radius:24px;padding:20px 28px;display:inline-block;box-shadow:0 16px 48px rgba(0,0,0,0.5);margin:0 auto var(--space-5);">
+          <img src="icons/logo-dark.png" alt="Minds' Craft" style="width:200px;height:auto;display:block;">
         </div>
         <p style="color:rgba(255,255,255,0.6);font-size:14px;font-weight:500;letter-spacing:0.5px;">Parent Portal</p>
         <div style="margin-top:48px;">
@@ -283,8 +282,8 @@ Router.register('login', async () => {
 
       <!-- Header -->
       <div style="padding:48px var(--space-6) var(--space-5);text-align:center;">
-        <div style="background:white;border-radius:18px;padding:14px 22px;margin:0 auto var(--space-4);display:inline-block;box-shadow:0 8px 28px rgba(0,0,0,0.35);">
-          <img src="icons/logo-dark.png" alt="Minds' Craft" style="width:150px;height:auto;display:block;">
+        <div style="background:white;border-radius:24px;padding:20px 28px;display:inline-block;box-shadow:0 12px 40px rgba(0,0,0,0.5);margin:0 auto var(--space-4);">
+          <img src="icons/logo-dark.png" alt="Minds' Craft" style="width:180px;height:auto;display:block;">
         </div>
         <h1 style="font-size:24px;font-weight:800;color:white;margin-bottom:4px;">Welcome Back</h1>
         <p style="color:rgba(255,255,255,0.5);font-size:14px;">Sign in to your parent account</p>
@@ -337,8 +336,6 @@ Router.register('login', async () => {
         </div>
       </div>
     </div>`;
-
-  // Form handles Enter key via onsubmit
 
   // Show install banner if applicable
   if (window._deferredInstallPrompt) {
