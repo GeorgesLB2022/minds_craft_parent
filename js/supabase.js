@@ -618,7 +618,7 @@ const DataService = {
     try {
       // Fetch trainers with all columns
       const rows = await sbGet(
-        `trainers?select=id,full_name,phone,email,status,created_at,title,start_year,start_date,description,avatar_url,rating&limit=50`,
+        `trainers?select=id,full_name,phone,email,status,created_at,title,start_year,start_date,description,avatar_url,rating,priority&order=priority.asc.nullslast&limit=50`,
         token
       ).catch(() => []);
       if (!rows || !rows.length) return [];
@@ -781,7 +781,13 @@ const DataService = {
         `student_allocations?student_id=eq.${studentId}&select=*&order=created_at.desc`,
         token
       ).catch((e) => { console.warn('[getKidSubscriptions] fetch failed:', e.message); return []; });
-      console.log(`[DataService] getKidSubscriptions(${studentId}) → ${rows?.length ?? 'null'} rows`, rows);
+      if (rows && rows.length > 0) {
+        console.log(`[DataService] getKidSubscriptions(${studentId}) → ${rows.length} rows`);
+        console.log('[DataService] student_allocations columns:', Object.keys(rows[0]));
+        console.log('[DataService] first allocation raw:', JSON.stringify(rows[0]));
+      } else {
+        console.log(`[DataService] getKidSubscriptions(${studentId}) → 0 rows`);
+      }
       if (!rows || rows.length === 0) return [];
 
       const pkgIds = [...new Set(rows.map(r => r.package_id).filter(Boolean))];
@@ -807,29 +813,144 @@ const DataService = {
       if (!kids.length) return [];
 
       const kidIds = kids.map(k => k.id);
-      const allocations = await sbGet(
-        `student_allocations?student_id=in.(${kidIds.join(',')})&select=*&order=created_at.desc`,
-        token
-      ).catch(() => []);
 
+      // Fetch allocations + enrollments + levels in parallel
+      const [allocations, enrollments] = await Promise.all([
+        sbGet(`student_allocations?student_id=in.(${kidIds.join(',')})&select=*&order=created_at.desc`, token).catch(() => []),
+        sbGet(`enrollments?student_id=in.(${kidIds.join(',')})&status=eq.active&select=id,student_id,level_id`, token).catch(() => [])
+      ]);
+
+      // Build kidId → [level_ids] map from enrollments
+      const kidLevelIds = {};
+      enrollments.forEach(e => {
+        if (!kidLevelIds[e.student_id]) kidLevelIds[e.student_id] = [];
+        kidLevelIds[e.student_id].push(e.level_id);
+      });
+
+      // Fetch all relevant levels (for day_of_week + start_time + course_id)
+      const allLevelIds = [...new Set(enrollments.map(e => e.level_id).filter(Boolean))];
+      let levelMap = {};
+      if (allLevelIds.length) {
+        const levels = await sbGet(
+          `levels?id=in.(${allLevelIds.join(',')})&select=id,course_id,day_of_week,start_time`,
+          token
+        ).catch(() => []);
+        levels.forEach(l => { levelMap[l.id] = l; });
+      }
+
+      // Fetch packages + which courses each package covers (package_courses)
       const pkgIds = [...new Set(allocations.map(a => a.package_id).filter(Boolean))];
       let pkgMap = {};
+      let pkgCourseIds = {}; // pkgId → [courseId, ...]
       if (pkgIds.length) {
         const pkgs = await sbGet(
           `packages?id=in.(${pkgIds.join(',')})&select=id,name,description,status,base_price,default_discount,duration_months`,
           token
         ).catch(() => []);
         pkgs.forEach(p => { pkgMap[p.id] = p; });
+
+        // Which course(s) does each package cover?
+        const pcRows = await sbGet(
+          `package_courses?package_id=in.(${pkgIds.join(',')})&select=package_id,course_id`,
+          token
+        ).catch(() => []);
+        (pcRows || []).forEach(pc => {
+          if (!pkgCourseIds[pc.package_id]) pkgCourseIds[pc.package_id] = [];
+          if (pc.course_id) pkgCourseIds[pc.package_id].push(pc.course_id);
+        });
       }
 
       const kidMap = {};
       kids.forEach(k => { kidMap[k.id] = k; });
 
+      // Day name helper
+      const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+      const dayMap = {
+        0:'Sunday',1:'Monday',2:'Tuesday',3:'Wednesday',4:'Thursday',5:'Friday',6:'Saturday',
+        'monday':'Monday','tuesday':'Tuesday','wednesday':'Wednesday',
+        'thursday':'Thursday','friday':'Friday','saturday':'Saturday','sunday':'Sunday'
+      };
+
       return allocations.map(a => {
-        const kid = kidMap[a.student_id];
-        return this._mapAllocation(a, pkgMap[a.package_id], kid?.name || '');
+        const kid  = kidMap[a.student_id];
+        const sub  = this._mapAllocation(a, pkgMap[a.package_id], kid?.name || '');
+
+        if (sub.status === 'expired' || sub.status === 'none' || !sub.expiryDate) return sub;
+
+        // Find all levels enrolled by THIS kid
+        const kidLevels = (kidLevelIds[a.student_id] || []).map(lid => levelMap[lid]).filter(Boolean);
+        if (!kidLevels.length) return sub;
+
+        // Helper: count sessLeft for one level
+        const _calcLeft = (lev) => {
+          const dayRaw  = lev.day_of_week;
+          const dayName = dayMap[dayRaw] || dayMap[(dayRaw + '').toLowerCase()] || null;
+          if (!dayName || dayName === 'TBD') return null;
+          const dayIndex  = DAY_NAMES.indexOf(dayName);
+          const classTime = lev.start_time ? lev.start_time.substring(0, 5) : null;
+          const now   = new Date();
+          const today = new Date(now); today.setHours(0, 0, 0, 0);
+          const end   = new Date(sub.expiryDate + 'T00:00:00'); end.setHours(23, 59, 59, 0);
+          if (end < today) return 0;
+          const diff   = (dayIndex - today.getDay() + 7) % 7;
+          const cursor = new Date(today);
+          cursor.setDate(cursor.getDate() + diff);
+          if (diff === 0 && classTime) {
+            const [hh, mm] = classTime.split(':').map(Number);
+            const sessionStart = new Date(today); sessionStart.setHours(hh, mm, 0, 0);
+            if (now >= sessionStart) cursor.setDate(cursor.getDate() + 7);
+          }
+          let cnt = 0;
+          const c = new Date(cursor);
+          while (c <= end) { cnt++; c.setDate(c.getDate() + 7); }
+          return cnt;
+        };
+
+        const _calcTotal = (lev) => {
+          const dayRaw  = lev.day_of_week;
+          const dayName = dayMap[dayRaw] || dayMap[(dayRaw + '').toLowerCase()] || null;
+          if (!dayName || dayName === 'TBD' || !sub.startDate) return 0;
+          const dayIndex = DAY_NAMES.indexOf(dayName);
+          const st = new Date(sub.startDate  + 'T00:00:00');
+          const en = new Date(sub.expiryDate + 'T00:00:00'); en.setHours(23, 59, 59, 0);
+          const diff = (dayIndex - st.getDay() + 7) % 7;
+          const c = new Date(st); c.setDate(c.getDate() + diff);
+          let cnt = 0;
+          while (c <= en) { cnt++; c.setDate(c.getDate() + 7); }
+          return cnt;
+        };
+
+        // Determine which levels belong to THIS package using package_courses.
+        // pkgCourseIds[pkg_id] = [courseId, courseId, ...]
+        // Match kidLevels whose course_id is in that list.
+        // Fallback: if no package_courses data, use all kid levels (old behaviour).
+        const coveredCourseIds = pkgCourseIds[a.package_id] || [];
+        const relevantLevels = coveredCourseIds.length
+          ? kidLevels.filter(l => coveredCourseIds.includes(l.course_id))
+          : kidLevels; // no package_courses data → fallback to all
+
+        // If still empty after filter, try direct courseId match then all levels
+        const levelsToUse = relevantLevels.length ? relevantLevels : kidLevels;
+
+        let sessLeft  = 0;
+        let sessTotal = 0;
+
+        for (const lev of levelsToUse) {
+          const left = _calcLeft(lev);
+          if (left !== null) {
+            sessLeft  += left;
+            sessTotal += _calcTotal(lev) || left;
+          }
+        }
+
+        if (sessLeft === 0 && sessTotal === 0) return sub; // couldn't calculate
+
+        sub.sessionsLeft  = sessLeft;
+        sub.sessionsTotal = sessTotal;
+        sub.sessionsUsed  = Math.max(0, sessTotal - sessLeft);
+        return sub;
       });
-    } catch (e) { return []; }
+    } catch (e) { console.error('[getAllSubscriptions]', e); return []; }
   },
 
   async getPackages() {
@@ -1245,7 +1366,8 @@ const DataService = {
       nextSession:     nextSession,
       nextSessionDay:  nextSessionDay,
       courseId:        l.course_id,
-      courseName:      course?.name || ''
+      courseName:      course?.name || '',
+      orderNum:        l.order_num  ?? 999
     };
   },
 
@@ -1294,10 +1416,18 @@ const DataService = {
     const isExpired  = daysLeft < 0 || a.status === 'expired';  // strictly past end date
     const isExpiring = !isExpired && daysLeft <= 7;
 
-    // Sessions — student_allocations has no sessions columns; leave as 0
-    const sessTotal = 0;
+    // Sessions — calculate from attendance records within the package period
+    // sessTotal = number of scheduled sessions in the package window (based on duration)
+    // sessUsed  = attendance records (present + late) within the window
+    // sessLeft  = sessTotal - sessUsed
+    const durMonthsForSess = pkg?.duration_months ?? 1;
+    // Approximate total sessions: 4 sessions/week × 4 weeks × duration_months
+    // We use a conservative 4 sessions/month as default
+    const sessTotal = Math.round(durMonthsForSess * 4);
+    // sessUsed will be updated by the UI layer from real attendance data
+    // For now set to 0 — app.js will patch this after loading attendance
     const sessUsed  = 0;
-    const sessLeft  = 0;
+    const sessLeft  = sessTotal;
 
     // Price — use price_paid from the allocation (what the parent actually paid),
     // fall back to pkg.base_price × (1 - discount_pct/100) if price_paid is absent
