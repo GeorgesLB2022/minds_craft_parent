@@ -20,7 +20,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="icons/icon-96.png">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=20250430m">
+  <link rel="stylesheet" href="css/app.css?v=20250430n">
   <title>Minds' Craft — Parent Portal</title>
   <!-- Cache control: always fetch fresh HTML -->
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -40,7 +40,7 @@
 <script>
 (function() {
   'use strict';
-  var APP_VERSION = '20250430m'; // logo on splash+login: white card with rounded corners
+  var APP_VERSION = '20250430n'; // splash+login now use logo.png (same as About page)
 
   // 1. Wipe ALL browser caches immediately
   if (window.caches) {
@@ -130,16 +130,16 @@
 </div>
 
 <!-- App scripts — version query string forces browser to re-download on every publish -->
-<script src="js/supabase.js?v=20250430m"></script>
-<script src="js/router.js?v=20250430m"></script>
-<script src="js/app.js?v=20250430m"></script>
+<script src="js/supabase.js?v=20250430n"></script>
+<script src="js/router.js?v=20250430n"></script>
+<script src="js/app.js?v=20250430n"></script>
 
 <!-- Register fresh SW + boot app -->
 <script>
 (function() {
   if ('serviceWorker' in navigator) {
     // Force SW update check on every page load
-    navigator.serviceWorker.register('sw.js?v=20250430m')
+    navigator.serviceWorker.register('sw.js?v=20250430n')
       .then(function(reg) {
         console.log('[SW] Ready:', reg.scope);
         // Immediately activate any waiting SW
