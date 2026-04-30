@@ -1,5 +1,5 @@
-// SW v20250426p — fix parent.name crash + smart JWT/OTP detection for reset link
-const SW_VERSION = '20250426p';
+// SW v20250430f — trainers Since date now includes year (full date format)
+const SW_VERSION = '20250430f';
 
 self.addEventListener('install', () => {
   console.log('[SW] Installing version', SW_VERSION);
