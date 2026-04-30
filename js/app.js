@@ -253,7 +253,7 @@ Router.register('splash', async () => {
       <div style="text-align:center;padding:var(--space-6);">
         <!-- Full logo on white pill card so it shows clearly on dark background -->
         <div style="background:white;border-radius:24px;padding:20px 28px;margin:0 auto var(--space-5);box-shadow:0 16px 48px rgba(0,0,0,0.4);display:inline-block;">
-          <img src="icons/logo.png" alt="Minds' Craft" style="width:220px;height:auto;display:block;">
+          <img src="icons/logo-dark.png" alt="Minds' Craft" style="width:180px;height:auto;display:block;">
         </div>
         <p style="color:rgba(255,255,255,0.6);font-size:14px;font-weight:500;letter-spacing:0.5px;">Parent Portal</p>
         <div style="margin-top:48px;">
@@ -284,7 +284,7 @@ Router.register('login', async () => {
       <!-- Header -->
       <div style="padding:48px var(--space-6) var(--space-5);text-align:center;">
         <div style="background:white;border-radius:18px;padding:14px 22px;margin:0 auto var(--space-4);display:inline-block;box-shadow:0 8px 28px rgba(0,0,0,0.35);">
-          <img src="icons/logo.png" alt="Minds' Craft" style="width:180px;height:auto;display:block;">
+          <img src="icons/logo-dark.png" alt="Minds' Craft" style="width:150px;height:auto;display:block;">
         </div>
         <h1 style="font-size:24px;font-weight:800;color:white;margin-bottom:4px;">Welcome Back</h1>
         <p style="color:rgba(255,255,255,0.5);font-size:14px;">Sign in to your parent account</p>
@@ -330,10 +330,7 @@ Router.register('login', async () => {
           <button onclick="Router.navigate('forgot-password')" class="btn btn--ghost btn--sm">Forgot password?</button>
         </div>
 
-        <div style="margin-top:var(--space-8);padding:var(--space-4);background:var(--color-bg);border-radius:var(--radius-lg);">
-          <p style="font-size:12px;color:var(--color-text-muted);text-align:center;margin-bottom:6px;font-weight:600;">HOW TO LOG IN</p>
-          <p style="font-size:13px;color:var(--color-text-secondary);text-align:center;line-height:1.6;">Enter the <strong>email address</strong> registered by your academy administrator.<br>Your password is your <strong>mobile number</strong>.</p>
-        </div>
+
 
         <div style="text-align:center;margin-top:var(--space-5);">
           <button onclick="Router.navigate('auth-test')" style="background:none;border:none;font-size:11px;color:rgba(0,0,0,0.2);cursor:pointer;padding:4px 8px;">🔧 Admin test tool</button>
@@ -632,19 +629,54 @@ async function doForgotPwd() {
 // ============================
 Router.register('home', async () => {
 
-  // Safe load — never crash the screen
-  let parent = {}, kids = [], notifications = [], events = [];
-  try {
+  // ── Token guard: if expired, refresh BEFORE any DB call ──────────────
+  // This fixes the "all zeros" bug on re-open when the access_token has
+  // expired but the refresh_token is still valid.
+  const _session = AuthService.getSession();
+  if (_session && Date.now() > (_session.expiresAt || 0)) {
+    console.log('[Home] Token expired — refreshing before render…');
+    const refreshed = await AuthService.refreshSession().catch(() => false);
+    if (!refreshed) {
+      console.warn('[Home] Refresh failed — redirecting to login');
+      await Router.navigate('login');
+      return;
+    }
+  }
+
+  // ── Load data with automatic retry on auth failure ────────────────────
+  const _loadHomeData = async () => {
     const results = await Promise.allSettled([
       DataService.getParent(),
       DataService.getKids(),
       DataService.getNotifications(),
       DataService.getEvents('upcoming')
     ]);
-    parent        = results[0].status === 'fulfilled' ? results[0].value : {};
-    kids          = results[1].status === 'fulfilled' ? results[1].value : [];
-    notifications = results[2].status === 'fulfilled' ? results[2].value : [];
-    events        = results[3].status === 'fulfilled' ? results[3].value : [];
+    return {
+      parent:        results[0].status === 'fulfilled' ? results[0].value : {},
+      kids:          results[1].status === 'fulfilled' ? results[1].value : [],
+      notifications: results[2].status === 'fulfilled' ? results[2].value : [],
+      events:        results[3].status === 'fulfilled' ? results[3].value : []
+    };
+  };
+
+  let parent = {}, kids = [], notifications = [], events = [];
+  try {
+    let data = await _loadHomeData();
+
+    // If kids is empty but we ARE logged in → token may have just been refreshed;
+    // wait 400 ms and retry once (handles race condition on cold re-open)
+    if (!data.kids.length && AuthService.isLoggedIn()) {
+      console.log('[Home] No kids on first load — retrying after short delay…');
+      await new Promise(r => setTimeout(r, 400));
+      // Try token refresh one more time in case the first attempt was in-flight
+      await AuthService.refreshSession().catch(() => {});
+      data = await _loadHomeData();
+    }
+
+    parent        = data.parent;
+    kids          = data.kids;
+    notifications = data.notifications;
+    events        = data.events;
   } catch(e) {
     console.warn('[Home] Data load error:', e);
   }
@@ -893,21 +925,45 @@ Router.register('kid-detail', async ({ kidId } = {}) => {
     kid.trainerId = classes[0].trainerId;
   }
 
-  // Collect unique trainer IDs across ALL enrolled classes
-  const uniqueTrainerIds = [...new Set(
-    classes.map(c => c.trainerId).filter(Boolean)
-  )];
+  // ── Collect ALL unique trainers across ALL enrolled classes ──────────────
+  // c.trainers[] already contains the full list fetched via trainer_assignments.
+  // Fallback to c.trainerId if c.trainers is empty.
+  const trainerMap = new Map(); // id → {id, full_name, ...}
+  classes.forEach(c => {
+    const list = (c.trainers && c.trainers.length > 0)
+      ? c.trainers
+      : (c.trainerId ? [{ id: c.trainerId, full_name: c.trainerName || '' }] : []);
+    list.forEach(t => {
+      if (t && t.id && !trainerMap.has(t.id)) trainerMap.set(t.id, t);
+    });
+  });
+  const trainerIdsToFetch = [...trainerMap.keys()];
 
-  // Fetch all subscriptions for this kid + all trainers in parallel
+  // Fetch subscriptions + full trainer profiles in parallel
   const [allSubsRaw, ...trainerResults] = await Promise.all([
     DataService.getKidSubscriptions(kid.id).catch(() => []),
-    ...uniqueTrainerIds.map(tid => DataService.getTrainer(tid).catch(() => null))
+    ...trainerIdsToFetch.map(tid => DataService.getTrainer(tid).catch(() => null))
   ]);
-  const allSubs  = allSubsRaw || [];
-  // allTrainers_ = array of trainer objects for all courses (de-duped, nulls removed)
-  const allTrainers_ = trainerResults.filter(Boolean);
-  // For backward-compat keep trainer_ as the first one
+  const allSubs = allSubsRaw || [];
+
+  // Build de-duped trainer array with full profiles (avatar, specialty, etc.)
+  // Fall back to the partial object from c.trainers if getTrainer returned null
+  const allTrainers_ = trainerIdsToFetch.map((tid, i) => {
+    const full = trainerResults[i];
+    if (full) return full;
+    // fallback: use what we already have from c.trainers
+    const partial = trainerMap.get(tid);
+    return partial ? {
+      id:        partial.id,
+      name:      partial.full_name || '—',
+      specialty: '',
+      avatar:    null,
+      initials:  (partial.full_name || '?').charAt(0).toUpperCase()
+    } : null;
+  }).filter(Boolean);
+
   const trainer_ = allTrainers_[0] || null;
+  console.log('[KidDetail] trainers for overview:', allTrainers_.map(t => t.name || t.full_name));
   // Latest allocation = first in list (ordered newest first)
   const sub_ = allSubs[0] || { sessionsLeft: 0, sessionsUsed: 0, sessionsTotal: 0, status: 'none', daysLeft: 0, packageName: 'No Package', plan: '—', startDate: null, expiryDate: null, autoRenew: false };
   const latestAssess = (assessments.length > 0) ? assessments[0] : null;
@@ -1521,12 +1577,15 @@ Router.register('classes', async () => {
   const kids = await DataService.getKids().catch(() => []);
   const allClasses = await DataService.getAllClasses().catch(() => []);
 
-  // Group classes by course name
+  // Group classes by course name, sorted by order_num ascending (lowest level first)
   const courseGroups = {};
   allClasses.forEach(c => {
     const courseName = c.courseName || c.type || 'General';
     if (!courseGroups[courseName]) courseGroups[courseName] = [];
     courseGroups[courseName].push(c);
+  });
+  Object.values(courseGroups).forEach(arr => {
+    arr.sort((a, b) => (a.orderNum ?? 999) - (b.orderNum ?? 999));
   });
 
   const groupedHTML = Object.entries(courseGroups).map(([courseName, classes]) => {
@@ -1810,10 +1869,7 @@ Router.register('event-detail', async ({ eventId } = {}) => {
             <p style="color:var(--color-text-secondary);font-size:14px;line-height:1.7;">${ev.description}</p>
           </div>
 
-          ${ev.status === 'upcoming' ? `
-          <button class="btn btn--primary btn--block" onclick="window.open('tel:+96170123456');UI.toast('Calling Minds\' Craft Center to reserve your spot!','📞')">
-            📞 Call to Reserve
-          </button>` : ''}
+
         </div>
       </div>
     </div>`;
@@ -1839,7 +1895,7 @@ Router.register('trainers', async () => {
           ${t.sinceDate ? `
           <div class="trainer-card__stat">
             <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/><line x1="16" y1="2" x2="16" y2="6" stroke="currentColor" stroke-width="2"/><line x1="8" y1="2" x2="8" y2="6" stroke="currentColor" stroke-width="2"/></svg>
-            Since ${UI.formatDateShort(t.sinceDate)}
+            Since ${UI.formatDate(t.sinceDate)}
           </div>` : ''}
         </div>
       </div>
@@ -1885,7 +1941,7 @@ Router.register('trainer-detail', async ({ trainerId } = {}) => {
           ${t.sinceDate ? `
           <div style="width:1px;background:rgba(255,255,255,0.2);"></div>
           <div style="text-align:center;">
-            <div style="font-size:18px;font-weight:800;color:white;">${UI.formatDateShort(t.sinceDate)}</div>
+            <div style="font-size:18px;font-weight:800;color:white;">${UI.formatDate(t.sinceDate)}</div>
             <div style="font-size:11px;color:rgba(255,255,255,0.65);text-transform:uppercase;letter-spacing:0.5px;">Since</div>
           </div>` : ''}
         </div>
@@ -1946,8 +2002,12 @@ Router.register('trainer-detail', async ({ trainerId } = {}) => {
 // ============================
 
 Router.register('subscriptions', async () => {
-  const subs     = await DataService.getAllSubscriptions().catch(() => []);
-  const packages = await DataService.getPackages().catch(() => []);
+  // getAllSubscriptions already calculates sessionsLeft/Total/Used correctly
+  // per-kid via enrollments in supabase.js — no need to recalculate here.
+  const [subs, packages] = await Promise.all([
+    DataService.getAllSubscriptions().catch(() => []),
+    DataService.getPackages().catch(() => [])
+  ]);
 
   // ── Active Subscriptions ─────────────────────────────────────
   const subsHTML = subs.length === 0
@@ -2091,10 +2151,6 @@ Router.register('subscriptions', async () => {
       ${coursesBadges}
       ${featureRows ? `<div style="margin-bottom:var(--space-3);">${featureRows}</div>` : ''}
 
-      <button class="btn btn--primary btn--block"
-        onclick="UI.toast('Our team will contact you about the ${p.name.replace(/'/g,"\\'")} package. 📞','✅')">
-        Enquire About This Package
-      </button>
     </div>`;
   }).join('');
 
@@ -2239,78 +2295,177 @@ Router.register('more', async () => {
 // ============================
 Router.register('about', async () => {
   const el = document.getElementById('screen-about');
+
+  // Render shell immediately — hero updated after DB fetch
   el.innerHTML = `
     <div style="display:flex;flex-direction:column;flex:1;min-height:0;background:var(--color-bg);">
-      <div class="about-hero">
+      <div class="about-hero" id="about-hero">
         <div style="background:white;border-radius:16px;padding:12px 20px;margin:0 auto var(--space-3);display:inline-block;box-shadow:0 4px 16px rgba(0,0,0,0.2);">
           <img src="icons/logo.png" alt="Minds' Craft" style="width:160px;height:auto;display:block;">
         </div>
-        <h1 style="font-size:22px;font-weight:800;margin-bottom:6px;">Minds' Craft Center</h1>
-        <p style="opacity:0.75;font-size:14px;line-height:1.6;">Shaping minds. Building champions.</p>
+        <h1 id="about-center-name" style="font-size:22px;font-weight:800;margin-bottom:6px;">Minds' Craft Center</h1>
+        <p id="about-slogan" style="opacity:0.75;font-size:14px;line-height:1.6;">⏳ Loading…</p>
       </div>
-
       <div class="scroll-content">
-        <div class="page-content">
-          <div class="card" style="margin-bottom:var(--space-3);">
-            <div style="margin-bottom:var(--space-4);">
-              <div class="about-stat-grid">
-                <div><span class="about-stat-num">500+</span><span class="about-stat-label">Students</span></div>
-                <div><span class="about-stat-num">12</span><span class="about-stat-label">Trainers</span></div>
-                <div><span class="about-stat-num">3</span><span class="about-stat-label">Branches</span></div>
-              </div>
-            </div>
-          </div>
+        <div class="page-content" id="about-body"></div>
+      </div>
+    </div>`;
 
-          <div class="card" style="margin-bottom:var(--space-3);">
-            <div class="card-title" style="margin-bottom:var(--space-3);">Our Mission</div>
-            <p style="color:var(--color-text-secondary);font-size:14px;line-height:1.7;">At Minds' Craft Center, we believe that martial arts is more than physical training — it is a holistic discipline that nurtures focus, confidence, respect and resilience in every student.</p>
-            <p style="color:var(--color-text-secondary);font-size:14px;line-height:1.7;margin-top:var(--space-3);">Our expert trainers create a safe, structured and inspiring environment where every child can grow at their own pace, discover their strengths and become the best version of themselves.</p>
-          </div>
+  try {
+    const token = AuthService.getToken();
 
-          <div class="card" style="margin-bottom:var(--space-3);">
-            <div class="card-title" style="margin-bottom:var(--space-3);">Our Branches</div>
-            ${[
-              ['Beirut Main Campus', 'Hamra Street, Beirut', 'Mon–Sat: 8AM – 8PM'],
-              ['Jounieh Branch', 'Kaslik Road, Jounieh', 'Mon–Sat: 9AM – 7PM'],
-              ['Tripoli Branch', 'Mina Road, Tripoli', 'Mon–Fri: 9AM – 6PM']
-            ].map(([name, address, hours]) => `
-              <div class="list-item" style="cursor:default;">
-                <div class="list-item__icon">
-                  <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="3" stroke="currentColor" stroke-width="2"/></svg>
-                </div>
-                <div class="list-item__content">
-                  <div class="list-item__title">${name}</div>
-                  <div class="list-item__sub">${address}</div>
-                  <div class="list-item__sub">${hours}</div>
-                </div>
-              </div>`).join('')}
-          </div>
+    // ── Fetch about_us (single row, id=1) + real counts in parallel ───
+    const [aboutArr, studentRows, trainerRows] = await Promise.all([
+      sbGet(`about_us?id=eq.1&select=*&limit=1`, token).catch(() => []),
+      sbGet(`users?user_type=eq.student&select=id`, token).catch(() => []),
+      sbGet(`trainers?select=id&status=eq.active`, token).catch(() => [])
+    ]);
 
-          <div class="card" style="margin-bottom:var(--space-3);">
-            <div class="card-title" style="margin-bottom:var(--space-3);">Contact Us</div>
-            ${[
-              ['Phone', '+961 1 234 567', `<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.61 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.91a16 16 0 0 0 6.18 6.18l.95-.96a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z" stroke="currentColor" stroke-width="2"/>`],
-              ['Email', 'info@mindscraft.com', `<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke="currentColor" stroke-width="2"/><polyline points="22,6 12,13 2,6" stroke="currentColor" stroke-width="2"/>`],
-              ['WhatsApp', '+961 70 123 456', `<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" stroke="currentColor" stroke-width="2"/>`]
-            ].map(([label, val, icon]) => `
-              <div class="list-item" style="cursor:default;">
-                <div class="list-item__icon">
-                  <svg width="20" height="20" fill="none" viewBox="0 0 24 24">${icon}</svg>
-                </div>
-                <div class="list-item__content">
-                  <div class="list-item__title">${val}</div>
-                  <div class="list-item__sub">${label}</div>
-                </div>
-              </div>`).join('')}
-          </div>
+    const a = (aboutArr || [])[0] || {};   // the single about_us row
 
-          <div style="display:flex;gap:var(--space-3);justify-content:center;margin-top:var(--space-4);">
-            ${['Instagram', 'Facebook', 'YouTube'].map(s => `
-              <div style="padding:8px 16px;border-radius:var(--radius-full);background:var(--color-primary-bg);font-size:12px;font-weight:600;color:var(--color-primary);cursor:pointer;" onclick="UI.toast('Opening ${s}...','🔗')">${s}</div>`).join('')}
+    // ── Hero: center name + slogan ─────────────────────────────────────
+    if (a.center_official_name)
+      document.getElementById('about-center-name').textContent = a.center_official_name;
+    document.getElementById('about-slogan').textContent = a.slogan || '';
+
+    // ── Stats ──────────────────────────────────────────────────────────
+    const studentCount = (studentRows || []).length || '—';
+    const trainerCount = (trainerRows || []).length || '—';
+
+    // ── Branches (JSONB array: [{name, address, city}, …]) ────────────
+    const svgPin = `<svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="3" stroke="currentColor" stroke-width="2"/></svg>`;
+    let branches = [];
+    try { branches = Array.isArray(a.branches) ? a.branches : (typeof a.branches === 'string' ? JSON.parse(a.branches) : []); } catch(_) {}
+    const branchHTML = branches.map(b => `
+      <div class="list-item" style="cursor:default;">
+        <div class="list-item__icon">${svgPin}</div>
+        <div class="list-item__content">
+          ${b.name    ? `<div class="list-item__title">${b.name}</div>`                              : ''}
+          ${b.address ? `<div class="list-item__sub">${b.address}${b.city ? ', '+b.city : ''}</div>` : (b.city ? `<div class="list-item__sub">${b.city}</div>` : '')}
+        </div>
+      </div>`).join('');
+
+    // ── Contact ────────────────────────────────────────────────────────
+    const svgPhone = `<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.61 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.91a16 16 0 0 0 6.18 6.18l.95-.96a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z" stroke="currentColor" stroke-width="2"/>`;
+    const svgMail  = `<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke="currentColor" stroke-width="2"/><polyline points="22,6 12,13 2,6" stroke="currentColor" stroke-width="2"/>`;
+    const svgWA    = `<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" stroke="currentColor" stroke-width="2"/>`;
+
+    const contactItems = [
+      a.contact_phone    ? ['Phone',    a.contact_phone,    svgPhone, `tel:${a.contact_phone.replace(/\s/g,'')}`]                             : null,
+      a.contact_whatsapp ? ['WhatsApp', a.contact_whatsapp, svgWA,    `https://wa.me/${a.contact_whatsapp.replace(/[^\d+]/g,'')}`]            : null,
+      a.contact_email    ? ['Email',    a.contact_email,    svgMail,  `mailto:${a.contact_email}`]                                            : null,
+    ].filter(Boolean);
+
+    const contactHTML = contactItems.map(([lbl, val, ico, href]) => `
+      <a href="${href}" target="_blank" rel="noopener" style="text-decoration:none;">
+        <div class="list-item">
+          <div class="list-item__icon"><svg width="20" height="20" fill="none" viewBox="0 0 24 24">${ico}</svg></div>
+          <div class="list-item__content">
+            <div class="list-item__title">${val}</div>
+            <div class="list-item__sub">${lbl}</div>
+          </div>
+        </div>
+      </a>`).join('');
+
+    // ── Social (Instagram + Facebook — official brand buttons) ───────────
+    // Instagram: official gradient logo (square rounded, gradient bg, camera+ring+dot in white)
+    const svgInsta = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="32" height="32">
+      <defs>
+        <radialGradient id="ig-grad" cx="30%" cy="107%" r="150%">
+          <stop offset="0%"   stop-color="#fdf497"/>
+          <stop offset="10%"  stop-color="#fdf497"/>
+          <stop offset="50%"  stop-color="#fd5949"/>
+          <stop offset="68%"  stop-color="#d6249f"/>
+          <stop offset="100%" stop-color="#285AEB"/>
+        </radialGradient>
+      </defs>
+      <rect width="48" height="48" rx="12" fill="url(#ig-grad)"/>
+      <rect x="13" y="13" width="22" height="22" rx="6.5" fill="none" stroke="white" stroke-width="2.5"/>
+      <circle cx="24" cy="24" r="5.5" fill="none" stroke="white" stroke-width="2.5"/>
+      <circle cx="32.5" cy="15.5" r="1.8" fill="white"/>
+    </svg>`;
+    // Facebook: official blue square logo with "f" wordmark
+    const svgFb = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="32" height="32">
+      <rect width="48" height="48" rx="12" fill="#1877F2"/>
+      <path d="M30 10h-4c-3.3 0-6 2.7-6 6v3h-4v5h4v14h5V24h4l1-5h-5v-3c0-.6.4-1 1-1h3V10z" fill="white"/>
+    </svg>`;
+    const socialsHTML = [
+      a.instagram_url ? `
+        <a href="${a.instagram_url}" target="_blank" rel="noopener" style="text-decoration:none;flex:1;max-width:160px;">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px 12px;border-radius:16px;background:linear-gradient(145deg,#fdf497 0%,#fd5949 40%,#d6249f 70%,#285AEB 100%);box-shadow:0 4px 14px rgba(214,36,159,0.35);transition:transform .15s;">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="36" height="36">
+              <rect width="48" height="48" rx="12" fill="rgba(255,255,255,0.15)"/>
+              <rect x="13" y="13" width="22" height="22" rx="6.5" fill="none" stroke="white" stroke-width="2.5"/>
+              <circle cx="24" cy="24" r="5.5" fill="none" stroke="white" stroke-width="2.5"/>
+              <circle cx="32.5" cy="15.5" r="1.8" fill="white"/>
+            </svg>
+            <span style="color:white;font-size:13px;font-weight:700;letter-spacing:0.3px;">Instagram</span>
+          </div>
+        </a>` : '',
+      a.facebook_url ? `
+        <a href="${a.facebook_url}" target="_blank" rel="noopener" style="text-decoration:none;flex:1;max-width:160px;">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px 12px;border-radius:16px;background:#1877F2;box-shadow:0 4px 14px rgba(24,119,242,0.4);transition:transform .15s;">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="36" height="36">
+              <rect width="48" height="48" rx="12" fill="rgba(255,255,255,0.15)"/>
+              <path d="M30 10h-4c-3.3 0-6 2.7-6 6v3h-4v5h4v14h5V24h4l1-5h-5v-3c0-.6.4-1 1-1h3V10z" fill="white"/>
+            </svg>
+            <span style="color:white;font-size:13px;font-weight:700;letter-spacing:0.3px;">Facebook</span>
+          </div>
+        </a>` : '',
+    ].filter(Boolean).join('');
+
+    // ── Render ─────────────────────────────────────────────────────────
+    document.getElementById('about-body').innerHTML = `
+
+      <!-- Stats centered -->
+      <div class="card" style="margin-bottom:var(--space-3);text-align:center;">
+        <div style="display:flex;justify-content:center;gap:var(--space-8);">
+          <div>
+            <div style="font-size:36px;font-weight:800;color:var(--color-primary);line-height:1;">${studentCount}</div>
+            <div style="font-size:12px;color:var(--color-text-muted);margin-top:4px;font-weight:600;letter-spacing:0.5px;">STUDENTS</div>
+          </div>
+          <div style="width:1px;background:var(--color-border);"></div>
+          <div>
+            <div style="font-size:36px;font-weight:800;color:var(--color-primary);line-height:1;">${trainerCount}</div>
+            <div style="font-size:12px;color:var(--color-text-muted);margin-top:4px;font-weight:600;letter-spacing:0.5px;">TRAINERS</div>
           </div>
         </div>
       </div>
-    </div>`;
+
+      <!-- Mission -->
+      ${a.mission ? `
+      <div class="card" style="margin-bottom:var(--space-3);">
+        <div class="card-title" style="margin-bottom:var(--space-3);">Our Mission</div>
+        <p style="color:var(--color-text-secondary);font-size:14px;line-height:1.8;">${a.mission}</p>
+      </div>` : ''}
+
+      <!-- Branches -->
+      ${branchHTML ? `
+      <div class="card" style="margin-bottom:var(--space-3);">
+        <div class="card-title" style="margin-bottom:var(--space-3);">Our Location${branches.length > 1 ? 's' : ''}</div>
+        ${branchHTML}
+      </div>` : ''}
+
+      <!-- Contact -->
+      ${contactHTML ? `
+      <div class="card" style="margin-bottom:var(--space-3);">
+        <div class="card-title" style="margin-bottom:var(--space-3);">Contact Us</div>
+        ${contactHTML}
+      </div>` : ''}
+
+      <!-- Social -->
+      ${socialsHTML ? `
+      <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin-top:var(--space-2);margin-bottom:var(--space-5);">
+        ${socialsHTML}
+      </div>` : ''}
+    `;
+
+  } catch(e) {
+    console.error('[about]', e);
+    document.getElementById('about-slogan').textContent = '';
+    document.getElementById('about-body').innerHTML =
+      `<div class="empty-state"><div class="empty-state__title">Could not load</div><div class="empty-state__body">${e.message}</div></div>`;
+  }
 });
 
 // ============================
@@ -2344,38 +2499,6 @@ Router.register('profile', async () => {
               <span class="settings-row__label">Change Password</span>
               <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6" stroke="var(--color-text-muted)" stroke-width="2"/></svg>
             </div>
-            <div class="settings-row" onclick="UI.toast('Language selection coming soon.','🌍')">
-              <div class="settings-row__icon" style="background:#D1FAE5;">
-                <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="var(--color-success)" stroke-width="2"/><line x1="2" y1="12" x2="22" y2="12" stroke="var(--color-success)" stroke-width="2"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" stroke="var(--color-success)" stroke-width="2"/></svg>
-              </div>
-              <span class="settings-row__label">Language</span>
-              <span class="settings-row__value">English</span>
-            </div>
-          </div>
-
-          <!-- Notifications Preferences -->
-          <p style="font-size:11px;font-weight:700;color:var(--color-text-muted);letter-spacing:0.5px;margin-bottom:var(--space-2);">NOTIFICATIONS</p>
-          <div class="settings-section" style="margin-bottom:var(--space-5);">
-            ${[
-              ['class_reminders',       'Class Reminders'],
-              ['attendance_alerts',     'Attendance Alerts'],
-              ['assessment_updates',    'Assessment Updates'],
-              ['package_reminders',     'Package & Payment Reminders'],
-              ['events_announcements',  'Events & Announcements']
-            ].map(([key, label]) => {
-              // Default = true for ALL; read saved preference from localStorage
-              const stored = localStorage.getItem('notif_' + key);
-              const isOn   = stored === null ? true : stored === 'true';
-              return `
-              <div class="settings-row" style="cursor:default;">
-                <span class="settings-row__label">${label}</span>
-                <label class="toggle">
-                  <input type="checkbox" ${isOn ? 'checked' : ''}
-                    onchange="saveNotifPref('${key}', this.checked); UI.toast(this.checked ? '${label} activé.' : '${label} désactivé.', '🔔')">
-                  <span class="toggle-slider"></span>
-                </label>
-              </div>`;
-            }).join('')}
           </div>
 
           <!-- PWA Install -->
@@ -2683,8 +2806,68 @@ function triggerInstall() {
       }
     });
   } else {
-    UI.toast('To install: tap Share → Add to Home Screen (Safari on iOS) or use browser menu.', '📱');
+    _showInstallModal();
   }
+}
+
+function _showInstallModal() {
+  const existing = document.getElementById('install-modal');
+  if (existing) existing.remove();
+
+  const iosSteps = [
+    'Open this page in <strong>Safari</strong> (not Chrome/Firefox)',
+    'Tap the <strong>Share</strong> button ⬆️ at the bottom of the screen',
+    'Scroll down and tap <strong>"Add to Home Screen"</strong>',
+    'Tap <strong>"Add"</strong> in the top-right corner ✅'
+  ];
+  const androidSteps = [
+    'Open this page in <strong>Chrome</strong>',
+    'Tap the <strong>3-dot menu ⋮</strong> in the top-right corner',
+    'Tap <strong>"Add to Home screen"</strong> or <strong>"Install app"</strong>',
+    'Tap <strong>"Add"</strong> or <strong>"Install"</strong> to confirm ✅'
+  ];
+
+  const stepsHTML = (steps, color) => steps.map((txt, i) => `
+    <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:10px;">
+      <span style="background:${color};color:white;border-radius:50%;min-width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;">${i+1}</span>
+      <span style="font-size:13px;line-height:1.55;">${txt}</span>
+    </div>`).join('');
+
+  const modal = document.createElement('div');
+  modal.id = 'install-modal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);display:flex;align-items:flex-end;justify-content:center;';
+  modal.innerHTML = `
+    <div style="background:white;border-radius:24px 24px 0 0;padding:28px 20px 48px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+        <div style="font-size:18px;font-weight:800;color:#1e293b;">📲 Install the App</div>
+        <button onclick="document.getElementById('install-modal').remove()" style="background:#f1f5f9;border:none;border-radius:50%;width:34px;height:34px;font-size:18px;cursor:pointer;color:#64748b;">✕</button>
+      </div>
+
+      <div style="background:#f0f9ff;border-radius:16px;padding:16px;margin-bottom:14px;border:1px solid #bae6fd;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+          <span style="font-size:26px;">🍎</span>
+          <div><div style="font-size:15px;font-weight:700;color:#0369a1;">iPhone / iPad</div>
+          <div style="font-size:11px;color:#0284c7;">Safari browser required</div></div>
+        </div>
+        <div style="color:#0c4a6e;">${stepsHTML(iosSteps, '#0284c7')}</div>
+      </div>
+
+      <div style="background:#f0fdf4;border-radius:16px;padding:16px;margin-bottom:14px;border:1px solid #bbf7d0;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+          <span style="font-size:26px;">🤖</span>
+          <div><div style="font-size:15px;font-weight:700;color:#15803d;">Android</div>
+          <div style="font-size:11px;color:#16a34a;">Chrome browser recommended</div></div>
+        </div>
+        <div style="color:#14532d;">${stepsHTML(androidSteps, '#16a34a')}</div>
+      </div>
+
+      <div style="background:#fef9c3;border-radius:12px;padding:12px 14px;border:1px solid #fde047;">
+        <p style="font-size:12px;color:#713f12;margin:0;text-align:center;line-height:1.55;">💡 Once installed, the app opens <strong>full-screen</strong> like a native app — no browser bar!</p>
+      </div>
+    </div>`;
+
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
 }
 
 // ============================
