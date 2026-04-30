@@ -1,5 +1,5 @@
-// SW v20250430f — trainers Since date now includes year (full date format)
-const SW_VERSION = '20250430f';
+// SW v20250430m — logo on splash+login: white card with rounded corners, no canvas
+const SW_VERSION = '20250430m';
 
 self.addEventListener('install', () => {
   console.log('[SW] Installing version', SW_VERSION);
