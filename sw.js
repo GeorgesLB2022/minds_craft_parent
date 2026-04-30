@@ -1,5 +1,5 @@
-// SW v20250430m — logo on splash+login: white card with rounded corners, no canvas
-const SW_VERSION = '20250430m';
+// SW v20250430n — splash+login now use logo.png (same as About page, always works)
+const SW_VERSION = '20250430n';
 
 self.addEventListener('install', () => {
   console.log('[SW] Installing version', SW_VERSION);
