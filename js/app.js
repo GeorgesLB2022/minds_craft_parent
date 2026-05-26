@@ -332,7 +332,7 @@ Router.register('login', async () => {
 
 
         <div style="text-align:center;margin-top:var(--space-5);">
-          <button onclick="Router.navigate('auth-test')" style="background:none;border:none;font-size:11px;color:rgba(0,0,0,0.2);cursor:pointer;padding:4px 8px;">🔧 Admin test tool</button>
+
         </div>
       </div>
     </div>`;
@@ -704,7 +704,7 @@ Router.register('home', async () => {
     return `
       <div class="kid-summary-card" onclick="Router.navigate('kid-detail', {kidId:'${kid.id}'})">
         <div class="kid-card-header" style="margin-bottom:var(--space-3);">
-          ${UI.avatar(kid.avatar, kid.initials, 'lg')}
+          ${UI.avatar(kid.avatar, kid.initials, 'lg', kid.avatarColor)}
           <div class="kid-info" style="flex:1;">
             <div class="kid-name">${kid.name}</div>
             ${kid.age ? `<div class="kid-meta">${kid.age} yrs</div>` : ''}
@@ -714,15 +714,24 @@ Router.register('home', async () => {
       </div>`;
   }));
 
-  // Events preview
-  const eventsHTML = events.slice(0, 2).map(ev => `
+  // Events preview — thumbnail if image available, gradient fallback otherwise
+  const eventsHTML = events.slice(0, 2).map(ev => {
+    const thumbHTML = ev.image
+      ? `<div style="width:100%;height:70px;border-radius:var(--radius-md);overflow:hidden;margin-bottom:var(--space-2);flex-shrink:0;">
+           <img src="${ev.image}" alt="${ev.title}" loading="lazy"
+             style="width:100%;height:100%;object-fit:cover;display:block;"
+             onerror="this.parentElement.style.background='linear-gradient(135deg,var(--color-primary),var(--color-secondary))';this.remove();">
+         </div>`
+      : `<div style="width:100%;height:70px;border-radius:var(--radius-md);background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));margin-bottom:var(--space-2);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+           ${UI.badge(ev.category, 'neutral')}
+         </div>`;
+    return `
     <div class="h-scroll-card" onclick="Router.navigate('event-detail',{eventId:'${ev.id}'})" style="width:220px;cursor:pointer;">
-      <div style="width:100%;height:70px;border-radius:var(--radius-md);background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));margin-bottom:var(--space-2);display:flex;align-items:center;justify-content:center;">
-        ${UI.badge(ev.category, 'neutral')}
-      </div>
+      ${thumbHTML}
       <div style="font-size:13px;font-weight:600;color:var(--color-text);margin-bottom:4px;">${ev.title}</div>
-      <div style="font-size:12px;color:var(--color-text-secondary);">${UI.formatDateShort(ev.date)} • ${ev.time}</div>
-    </div>`).join('');
+      <div style="font-size:12px;color:var(--color-text-secondary);">${UI.formatDateShort(ev.date)} • ${UI.formatTime(ev.time)}</div>
+    </div>`;
+  }).join('');
 
   // Notification preview
   const notifHTML = notifications.filter(n => n.unread).slice(0, 3).map(n => `
@@ -740,14 +749,14 @@ Router.register('home', async () => {
 
   const el = document.getElementById('screen-home');
   el.innerHTML = `
-    <div style="display:flex;flex-direction:column;flex:1;min-height:0;background:var(--color-bg);">
+    <div class="screen-inner">
       <!-- Hero Header -->
       <div class="hero-header">
         <div class="hero-header__content">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-4);">
             <div>
               <p style="color:rgba(255,255,255,0.65);font-size:12px;font-weight:500;letter-spacing:0.5px;">GOOD ${getTimeOfDay()}</p>
-              <h1 style="color:white;font-size:22px;font-weight:800;">${(parent.name || parent.fullName || 'Welcome').split(' ')[0]} 👋</h1>
+              <h1 style="color:white;font-size:22px;font-weight:800;">${parent.name || parent.fullName || 'Welcome'} 👋</h1>
             </div>
             <div style="display:flex;align-items:center;gap:var(--space-2);">
               <button class="icon-btn" onclick="Router.navigate('notifications')" style="background:rgba(255,255,255,0.15);color:white;" aria-label="Notifications">
@@ -863,7 +872,7 @@ Router.register('kids', async () => {
     return `
       <div class="kid-summary-card" onclick="Router.navigate('kid-detail',{kidId:'${kid.id}'})">
         <div class="kid-card-header" style="margin-bottom:var(--space-3);">
-          ${UI.avatar(kid.avatar, kid.initials, 'xl')}
+          ${UI.avatar(kid.avatar, kid.initials, 'xl', kid.avatarColor)}
           <div class="kid-info" style="flex:1;">
             <div class="kid-name">${kid.name}</div>
             ${kid.age ? `<div class="kid-meta">${kid.age} years old</div>` : ''}
@@ -875,7 +884,7 @@ Router.register('kids', async () => {
 
   const el = document.getElementById('screen-kids');
   el.innerHTML = `
-    <div style="display:flex;flex-direction:column;flex:1;min-height:0;background:var(--color-bg);">
+    <div class="screen-inner">
       ${UI.appBar('My Kids', false, UI.notifBellBtn())}
       <div class="scroll-content">
         <div class="page-content">
@@ -974,26 +983,38 @@ Router.register('kid-detail', async ({ kidId } = {}) => {
       case 'assessments':  return renderAssessmentsTab(assessments, kid);
       case 'classes':      return renderClassesTab(classes);
       case 'level':        return renderLevelTab(levelInfo, classes, kid);
-      case 'subscription': return renderSubscriptionTab(allSubs, kid);
+      case 'subscription': return renderSubscriptionTab(allSubs, kid, classes);
       default: return '';
     }
   };
 
   el.innerHTML = `
-    <div style="display:flex;flex-direction:column;flex:1;min-height:0;background:var(--color-bg);">
+    <div class="screen-inner">
       <!-- Hero -->
       <div class="detail-hero" style="position:relative;">
         <button onclick="Router.back()" style="position:absolute;top:var(--safe-top);top:calc(var(--safe-top) + 8px);left:12px;width:38px;height:38px;background:rgba(255,255,255,0.15);border:none;border-radius:var(--radius-full);display:flex;align-items:center;justify-content:center;cursor:pointer;color:white;">
           <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path d="M19 12H5M5 12l7-7M5 12l7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
-        ${UI.avatar(kid.avatar, kid.initials, '2xl')}
+        <div onclick="kidPhotoEdit('${kid.id}')" title="Tap to change photo">
+          ${UI.avatar(kid.avatar, kid.initials, '2xl', kid.avatarColor, true)}
+        </div>
         <h2 style="color:white;font-size:22px;font-weight:800;margin-top:var(--space-3);">${kid.name}</h2>
         <div style="display:flex;align-items:center;justify-content:center;gap:var(--space-2);margin-top:6px;flex-wrap:wrap;">
-          ${allSubs.length > 0
-            ? allSubs.filter(s => s.status !== 'none').map(s =>
-                `<span style="font-size:11px;font-weight:600;padding:3px 10px;border-radius:99px;background:rgba(255,255,255,0.18);color:white;border:1px solid rgba(255,255,255,0.3);">${s.packageName} · Exp ${UI.formatDateShort(s.expiryDate)}</span>`
-              ).join('')
-            : `<span style="font-size:11px;color:rgba(255,255,255,0.6);">No active package</span>`}
+          ${(() => {
+              // Deduplicate: keep only the latest sub per packageName
+              const seen = new Map();
+              allSubs.filter(s => s.status !== 'none').forEach(s => {
+                const key = (s.packageName || '').trim().toLowerCase();
+                const existing = seen.get(key);
+                if (!existing || (s.startDate || '') > (existing.startDate || '')) seen.set(key, s);
+              });
+              const dedupedSubs = [...seen.values()];
+              return dedupedSubs.length > 0
+                ? dedupedSubs.map(s =>
+                    `<span style="font-size:11px;font-weight:600;padding:3px 10px;border-radius:99px;background:rgba(255,255,255,0.18);color:white;border:1px solid rgba(255,255,255,0.3);">${s.packageName} · Exp ${UI.formatDateShort(s.expiryDate)}</span>`
+                  ).join('')
+                : `<span style="font-size:11px;color:rgba(255,255,255,0.6);">No active package</span>`;
+            })()}
         </div>
       </div>
 
@@ -1034,7 +1055,7 @@ function switchKidTab(tabId, btn) {
   btn.classList.add('active');
   btn.style.borderBottomColor = 'var(--color-primary)';
 
-  const { kid, assessments, classes, levelInfo, trainer_, allTrainers_, attendance, allSubs } = window._kidTabData;
+  const { kid, assessments, classes, levelInfo, trainer_, allTrainers_, attendance, allSubs } = window._kidTabData || {};
   const content = document.getElementById('kid-tab-content');
   const latestAssess = (assessments && assessments.length > 0) ? assessments[0] : null;
 
@@ -1044,11 +1065,98 @@ function switchKidTab(tabId, btn) {
     case 'assessments':  content.innerHTML = renderAssessmentsTab(assessments, kid); break;
     case 'classes':      content.innerHTML = renderClassesTab(classes); break;
     case 'level':        content.innerHTML = renderLevelTab(levelInfo, classes, kid); break;
-    case 'subscription': content.innerHTML = renderSubscriptionTab(allSubs, kid); break;
+    case 'subscription': content.innerHTML = renderSubscriptionTab(allSubs, kid, classes); break;
   }
 
   document.querySelector('.scroll-content')?.scrollTo(0, 0);
   initProgressRings();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// KID PHOTO EDIT — tap avatar in kid-detail to pick & upload a new photo
+// ─────────────────────────────────────────────────────────────────────────────
+function kidPhotoEdit(kidId) {
+  // Reuse a hidden file input (create once, reuse)
+  let inp = document.getElementById('_kid-photo-input');
+  if (!inp) {
+    inp = document.createElement('input');
+    inp.type    = 'file';
+    inp.accept  = 'image/*';
+    inp.id      = '_kid-photo-input';
+    inp.style.display = 'none';
+    document.body.appendChild(inp);
+  }
+  // Remove old listener to avoid stacking handlers
+  inp.onchange = null;
+  inp.value    = '';
+
+  inp.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    UI.toast('Uploading photo…', '⏳');
+
+    try {
+      // ── Compress to max 200×200 JPEG (same as admin app) ──────────
+      const base64 = await _compressImage(file, 200, 200, 0.82);
+
+      // ── Write to Supabase public.users ────────────────────────────────────
+      await DataService.updateKidAvatar(kidId, base64);
+
+      UI.toast('Photo updated! ✅', '');
+
+      // ── Live-update all <img> / placeholder elements for this kid ──
+      // Re-render the hero avatar without a full page reload
+      const heroWrap = document.querySelector('#screen-kid-detail .detail-hero [onclick*="kidPhotoEdit"]');
+      if (heroWrap) {
+        heroWrap.innerHTML = UI.avatar(base64, (window._kidTabData?.kid?.initials || '?'), '2xl',
+          window._kidTabData?.kid?.avatarColor || null, true);
+      }
+      // Update in-memory data so tab switches keep the new photo
+      if (window._kidTabData?.kid) {
+        window._kidTabData.kid.avatar = base64;
+      }
+
+      // Refresh home cards avatars (already-rendered img src)
+      document.querySelectorAll(`[data-kid-id="${kidId}"] .avatar`).forEach(img => {
+        img.src = base64;
+      });
+
+    } catch (err) {
+      console.error('[kidPhotoEdit]', err);
+      UI.toast('Upload failed — please try again', '❌');
+    }
+  };
+
+  inp.click();
+}
+
+// Compress an image File to a base64 JPEG at max w×h pixels
+function _compressImage(file, maxW, maxH, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload  = (ev) => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload  = () => {
+        let { width, height } = img;
+        // Scale down keeping aspect ratio
+        if (width > maxW || height > maxH) {
+          const ratio = Math.min(maxW / width, maxH / height);
+          width  = Math.round(width  * ratio);
+          height = Math.round(height * ratio);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width  = width;
+        canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 function renderOverviewTab(kid, classes, allSubs, attendance, latestAssess, trainersArg) {
@@ -1195,7 +1303,7 @@ function renderAttendanceTab(attendance, classes, allSubs) {
         </div>
         <div class="att-row__info">
           <div class="att-row__class">${r.className}</div>
-          <div class="att-row__time">${UI.formatDateShort(r.date)} · ${r.time}</div>
+          <div class="att-row__time">${UI.formatDateShort(r.date)} · ${UI.formatTime(r.time)}</div>
         </div>
         ${UI.attendanceBadge(r.status)}
       </div>`).join('');
@@ -1212,7 +1320,7 @@ function renderAttendanceTab(attendance, classes, allSubs) {
       <div class="card" style="margin-bottom:var(--space-4);">
         <div class="card-header" style="margin-bottom:var(--space-3);">
           <span class="card-title">${cls.courseName || cls.name}</span>
-          <span style="font-size:12px;color:var(--color-text-muted);">${(cls.days || [])[0] || ''} · ${cls.time}</span>
+          <span style="font-size:12px;color:var(--color-text-muted);">${(cls.days || [])[0] || ''} · ${UI.formatTime(cls.time)}</span>
         </div>
         ${pkgBanner}
         ${statsHtml}
@@ -1239,7 +1347,7 @@ function _renderAttRows(attRows, title) {
       </div>
       <div class="att-row__info">
         <div class="att-row__class">${r.className}</div>
-        <div class="att-row__time">${UI.formatDateShort(r.date)} · ${r.time}</div>
+        <div class="att-row__time">${UI.formatDateShort(r.date)} · ${UI.formatTime(r.time)}</div>
       </div>
       ${UI.attendanceBadge(r.status)}
     </div>`).join('');
@@ -1295,7 +1403,7 @@ function renderClassesTab(classes) {
     <div class="class-card" onclick="Router.navigate('class-detail',{classId:'${c.id}'})">
       <div class="class-card__date-badge">
         <span class="class-card__date-day">${c.days[0]?.substring(0,3).toUpperCase()}</span>
-        <span class="class-card__date-num" style="font-size:13px;letter-spacing:-0.5px;">${c.time || 'TBD'}</span>
+        <span class="class-card__date-num" style="font-size:13px;letter-spacing:-0.5px;">${UI.formatTime(c.time) || 'TBD'}</span>
       </div>
       <div class="class-card__info">
         <div class="class-card__name">${c.name}</div>
@@ -1340,7 +1448,7 @@ function renderLevelTab(levelInfo, classes, kid) {
       ? cls.trainers.filter(t => t && t.id && t.full_name && t.full_name.trim() !== '' && t.full_name !== '—')
       : (cls.trainerId && cls.trainerName && cls.trainerName !== '—' ? [{ id: cls.trainerId, full_name: cls.trainerName }] : []);
     const days        = (cls.days || []).join(', ') || '—';
-    const time        = cls.time || '—';
+    const time        = UI.formatTime(cls.time) || '—';
     const duration    = cls.duration || '—';
 
     // Show milestones only for the class whose level matches levelInfo
@@ -1404,7 +1512,7 @@ function renderLevelTab(levelInfo, classes, kid) {
   }).join('');
 }
 
-function renderSubscriptionTab(allSubs, kid) {
+function renderSubscriptionTab(allSubs, kid, classes) {
   const safeSubs = allSubs || [];
   const kidName  = kid?.name || 'your child';
 
@@ -1429,8 +1537,19 @@ function renderSubscriptionTab(allSubs, kid) {
       </button>`;
   }
 
+  // ── Deduplicate: keep only the latest sub per packageName ──────
+  const deduped = (() => {
+    const seen = new Map();
+    safeSubs.forEach(s => {
+      const key = (s.packageName || '').trim().toLowerCase();
+      const existing = seen.get(key);
+      if (!existing || (s.startDate || '') > (existing.startDate || '')) seen.set(key, s);
+    });
+    return [...seen.values()];
+  })();
+
   // ── Sort: active first, then warning, then expired ──────────────
-  const sorted = [...safeSubs].sort((a, b) => {
+  const sorted = [...deduped].sort((a, b) => {
     const order = { active:0, warning:1, expired:2, none:3 };
     return (order[a.status] ?? 4) - (order[b.status] ?? 4);
   });
@@ -1470,9 +1589,47 @@ function renderSubscriptionTab(allSubs, kid) {
     }
 
     // Active / expiring card
-    const hasSessionData = sub.sessionsTotal > 0;
-    const sessBarWidth   = hasSessionData
-      ? Math.min(100, Math.round((sub.sessionsLeft / sub.sessionsTotal) * 100)) : 0;
+    // ── Recalculate sessions dynamically using class schedule + expiry date ──
+    // This mirrors the same logic used on the home page (calcSessionsLeft),
+    // which is always correct — instead of the stale DB value.
+    const _calcDynSessions = () => {
+      const kidClasses = classes || [];
+      if (!kidClasses.length || !sub.expiryDate) return { left: sub.sessionsLeft, total: sub.sessionsTotal };
+      // Find the class(es) covered by this subscription
+      const matchedClasses = kidClasses.filter(cls => {
+        const pkgName   = (sub.packageName  || '').toLowerCase();
+        const clsName   = (cls.courseName   || cls.name || '').toLowerCase();
+        return pkgName.includes(clsName) || clsName.includes(pkgName.split(/[\s\-–]/)[0]);
+      });
+      const toCheck = matchedClasses.length ? matchedClasses : kidClasses;
+      let totalLeft = 0, totalSess = 0;
+      toCheck.forEach(cls => {
+        const day = cls.days && cls.days[0];
+        if (!day || day === 'TBD') return;
+        const left = calcSessionsLeft(day, sub.expiryDate, cls.time);
+        if (left === '—' || left === null) return;
+        totalLeft += left;
+        // total sessions in package window (start → expiry)
+        if (sub.startDate) {
+          const dayIdx = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].indexOf(day);
+          if (dayIdx >= 0) {
+            const st = new Date((sub.startDate).replace(/-/g, '/'));
+            const en = new Date((sub.expiryDate).replace(/-/g, '/')); en.setHours(23,59,59,0);
+            const diff = (dayIdx - st.getDay() + 7) % 7;
+            const cur  = new Date(st); cur.setDate(cur.getDate() + diff);
+            let cnt = 0;
+            while (cur <= en) { cnt++; cur.setDate(cur.getDate() + 7); }
+            totalSess += cnt;
+          }
+        }
+      });
+      if (totalLeft === 0 && totalSess === 0) return { left: sub.sessionsLeft, total: sub.sessionsTotal };
+      return { left: totalLeft, total: totalSess || totalLeft };
+    };
+    const { left: dynLeft, total: dynTotal } = _calcDynSessions();
+    const hasSessionData = dynTotal > 0 || dynLeft > 0;
+    const sessBarWidth   = dynTotal > 0
+      ? Math.min(100, Math.round((dynLeft / dynTotal) * 100)) : 0;
 
     return `
     <div class="card" style="margin-bottom:var(--space-3);border-left:4px solid ${borderColor};">
@@ -1493,14 +1650,12 @@ function renderSubscriptionTab(allSubs, kid) {
         </span>
       </div>
       ${hasSessionData ? `
-      <div class="info-row"><span class="info-row__key">Sessions</span>
-        <span class="info-row__val" style="font-weight:700;color:${sub.sessionsLeft <= 2 ? 'var(--color-warning)' : 'var(--color-primary)'}">
-          ${sub.sessionsLeft} / ${sub.sessionsTotal} remaining
+      <div class="info-row"><span class="info-row__key">Sessions Left</span>
+        <span class="info-row__val" style="font-weight:700;color:${dynLeft <= 2 ? 'var(--color-warning)' : 'var(--color-primary)'}">
+          ${dynLeft}${dynTotal > 0 ? ' / ' + dynTotal : ''} remaining
         </span>
       </div>
-      <div class="progress-bar-wrap" style="margin:var(--space-2) 0;">
-        <div class="progress-bar-fill" style="width:${sessBarWidth}%"></div>
-      </div>` : ''}
+      ${dynTotal > 0 ? `<div class="progress-bar-wrap" style="margin:var(--space-2) 0;"><div class="progress-bar-fill" style="width:${sessBarWidth}%"></div></div>` : ''}` : ''}
       ${sub.price != null ? `<div class="info-row"><span class="info-row__key">Price</span><span class="info-row__val" style="font-weight:700;color:var(--color-primary);">${typeof sub.price === 'number' ? '$' + sub.price.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2}) : sub.price}</span></div>` : ''}
       <div class="info-row"><span class="info-row__key">Auto-Renew</span><span class="info-row__val">${sub.autoRenew ? '✓ Enabled' : '✗ Disabled'}</span></div>
 
@@ -1533,7 +1688,7 @@ Router.register('assessment-detail', async ({ kidId, assessId } = {}) => {
 
   const el = document.getElementById('screen-assessment-detail');
   el.innerHTML = `
-    <div style="display:flex;flex-direction:column;flex:1;min-height:0;background:var(--color-bg);">
+    <div class="screen-inner">
       ${UI.appBar(assess.title, true)}
       <div class="scroll-content">
         <div class="page-content">
@@ -1593,7 +1748,7 @@ Router.register('classes', async () => {
         ? c.trainerNames
         : (c.trainerName && c.trainerName !== '—') ? c.trainerName : '';
       // Display date badge: day abbr, date number, full time
-      const nextDate = c.nextSession ? new Date(c.nextSession) : null;
+      const nextDate = c.nextSession ? new Date(c.nextSession.replace(/-/g, '/')) : null;
       const dayAbbr = c.days[0] ? c.days[0].substring(0,3).toUpperCase() : '—';
       const dateNum = nextDate ? nextDate.getDate() : '—';
       return `
@@ -1601,14 +1756,14 @@ Router.register('classes', async () => {
         <div class="class-card__date-badge">
           <span class="class-card__date-day">${dayAbbr}</span>
           <span class="class-card__date-num">${dateNum}</span>
-          <span class="class-card__date-time">${c.time || '—'}</span>
+          <span class="class-card__date-time">${UI.formatTime(c.time) || '—'}</span>
         </div>
         <div class="class-card__info">
           <div class="class-card__name">${c.name}</div>
           ${kidForClass ? `<div style="margin-bottom:4px;">${UI.badge(kidForClass.firstName, 'primary')}</div>` : ''}
           <div class="class-card__meta">
             <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><polyline points="12 6 12 12 16 14" stroke="currentColor" stroke-width="2"/></svg>
-            ${c.days.join(' · ')} · ${c.time} · ${c.duration}
+            ${c.days.join(' · ')} · ${UI.formatTime(c.time)} · ${c.duration}
           </div>
           ${trainerDisplay ? `
           <div class="class-card__meta" style="margin-top:3px;">
@@ -1632,7 +1787,7 @@ Router.register('classes', async () => {
 
   const el = document.getElementById('screen-classes');
   el.innerHTML = `
-    <div style="display:flex;flex-direction:column;flex:1;min-height:0;background:var(--color-bg);">
+    <div class="screen-inner">
       ${UI.appBar('Classes', false, UI.notifBellBtn())}
       <div class="scroll-content">
         <div class="page-content">
@@ -1661,7 +1816,7 @@ Router.register('class-detail', async ({ classId } = {}) => {
 
   const el = document.getElementById('screen-class-detail');
   el.innerHTML = `
-    <div style="display:flex;flex-direction:column;flex:1;min-height:0;background:var(--color-bg);">
+    <div class="screen-inner">
       <!-- Hero -->
       <div style="background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));padding:var(--space-8) var(--space-4) var(--space-6);position:relative;">
         <button onclick="Router.back()" style="position:absolute;top:var(--space-3);left:var(--space-3);width:36px;height:36px;background:rgba(255,255,255,0.15);border:none;border-radius:var(--radius-full);display:flex;align-items:center;justify-content:center;cursor:pointer;color:white;">
@@ -1670,7 +1825,7 @@ Router.register('class-detail', async ({ classId } = {}) => {
         <div style="text-align:center;color:white;">
           <div style="font-size:13px;opacity:0.7;margin-bottom:8px;">${UI.badge(c.type, 'neutral')}</div>
           <h2 style="font-size:22px;font-weight:800;">${c.name}</h2>
-          <p style="opacity:0.75;margin-top:6px;">${c.days.join(' · ')} · ${c.time}</p>
+          <p style="opacity:0.75;margin-top:6px;">${c.days.join(' · ')} · ${UI.formatTime(c.time)}</p>
         </div>
       </div>
 
@@ -1679,7 +1834,7 @@ Router.register('class-detail', async ({ classId } = {}) => {
           <div class="card" style="margin-bottom:var(--space-3);">
             <div class="card-title" style="margin-bottom:var(--space-3);">Class Details</div>
             <div class="info-row"><span class="info-row__key">Schedule</span><span class="info-row__val">${c.days.join(', ')}</span></div>
-            <div class="info-row"><span class="info-row__key">Time</span><span class="info-row__val">${c.time}</span></div>
+            <div class="info-row"><span class="info-row__key">Time</span><span class="info-row__val">${UI.formatTime(c.time)}</span></div>
             <div class="info-row"><span class="info-row__key">Duration</span><span class="info-row__val">${c.duration}</span></div>
             <div class="info-row"><span class="info-row__key">Center</span><span class="info-row__val">Minds' Craft Center</span></div>
             ${(() => {
@@ -1720,11 +1875,11 @@ Router.register('class-detail', async ({ classId } = {}) => {
             <div style="display:flex;align-items:center;gap:var(--space-3);">
               <div style="background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));color:white;border-radius:var(--radius-lg);padding:var(--space-3) var(--space-4);text-align:center;min-width:60px;">
                 <div style="font-size:11px;opacity:0.8;">${c.nextSessionDay?.substring(0,3).toUpperCase()}</div>
-                <div style="font-size:24px;font-weight:800;">${new Date(c.nextSession).getDate()}</div>
+                <div style="font-size:24px;font-weight:800;">${new Date(c.nextSession.replace(/-/g,'/')).getDate()}</div>
               </div>
               <div>
                 <div style="font-weight:600;font-size:15px;">${UI.formatDate(c.nextSession)}</div>
-                <div style="color:var(--color-text-secondary);font-size:13px;">at ${c.time} · ${c.duration}</div>
+                <div style="color:var(--color-text-secondary);font-size:13px;">at ${UI.formatTime(c.time)} · ${c.duration}</div>
               </div>
             </div>
           </div>
@@ -1734,90 +1889,85 @@ Router.register('class-detail', async ({ classId } = {}) => {
 });
 
 // ============================
+// Event card — carousel horizontal
+function _evCard(ev) {
+  const bg = ev.themeColor
+    ? `linear-gradient(135deg,${ev.themeColor}cc,${ev.themeColor})`
+    : 'linear-gradient(135deg,var(--color-primary),var(--color-secondary))';
+
+  const imgHTML = ev.image
+    ? `<div class="event-card__image-wrap">
+         <img class="event-card__img" src="${ev.image}" alt="${ev.title}"
+           onerror="this.parentElement.style.background='${bg}';this.style.display='none'">
+       </div>`
+    : `<div class="event-card__image-placeholder" style="background:${bg}">
+         <svg width="48" height="48" fill="none" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" stroke="rgba(255,255,255,0.5)" stroke-width="1.5"/><line x1="3" y1="10" x2="21" y2="10" stroke="rgba(255,255,255,0.5)" stroke-width="1.5"/></svg>
+       </div>`;
+
+  return `
+    <article class="event-card" onclick="Router.navigate('event-detail',{eventId:'${ev.id}'})">  
+      ${imgHTML}
+      <div class="event-card__body">
+        <div class="event-card__title">${ev.title}</div>
+        <div class="event-card__meta">
+          <div class="event-card__meta-item">
+            <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/><line x1="3" y1="10" x2="21" y2="10" stroke="currentColor" stroke-width="2"/></svg>
+            ${UI.formatDate(ev.startDate)}${ev.endDate && ev.endDate !== ev.startDate ? ' → ' + UI.formatDate(ev.endDate) : ''}
+          </div>
+          <div class="event-card__meta-item">
+            <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><polyline points="12 6 12 12 16 14" stroke="currentColor" stroke-width="2"/></svg>
+            ${UI.formatTime(ev.time)}${ev.endTime ? ' – ' + UI.formatTime(ev.endTime) : ''}
+          </div>
+          <div class="event-card__meta-item">
+            <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="3" stroke="currentColor" stroke-width="2"/></svg>
+            ${ev.location}
+          </div>
+        </div>
+      </div>
+    </article>`;
+}
+
 // SCREEN: EVENTS
 // ============================
 Router.register('events', async () => {
-  const events = await DataService.getEvents();
-  let filter = 'upcoming';
+  const events = await DataService.getEvents('all');
+  console.log('[Events] loaded:', events.length, events.map(e=>({title:e.title,status:e.status,image:e.image})));
 
-  const renderEvents = async (f) => {
+  const renderEvents = (f) => {
     const filtered = events.filter(e => f === 'all' || e.status === f);
-    return filtered.map(ev => `
-      <div class="event-card" onclick="Router.navigate('event-detail',{eventId:'${ev.id}'})">
-        <div class="event-card__image-placeholder">
-          <svg width="40" height="40" fill="none" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" stroke="rgba(255,255,255,0.4)" stroke-width="2"/><line x1="16" y1="2" x2="16" y2="6" stroke="rgba(255,255,255,0.4)" stroke-width="2"/><line x1="8" y1="2" x2="8" y2="6" stroke="rgba(255,255,255,0.4)" stroke-width="2"/><line x1="3" y1="10" x2="21" y2="10" stroke="rgba(255,255,255,0.4)" stroke-width="2"/></svg>
-        </div>
-        <div class="event-card__body">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:var(--space-2);">
-            <div class="event-card__title" style="margin-bottom:0;">${ev.title}</div>
-            ${UI.badge(ev.category, 'primary')}
-          </div>
-          <div class="event-card__meta">
-            <div class="event-card__meta-item">
-              <svg width="13" height="13" fill="none" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/><line x1="3" y1="10" x2="21" y2="10" stroke="currentColor" stroke-width="2"/></svg>
-              ${UI.formatDate(ev.date)}
-            </div>
-            <div class="event-card__meta-item">
-              <svg width="13" height="13" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><polyline points="12 6 12 12 16 14" stroke="currentColor" stroke-width="2"/></svg>
-              ${ev.time}
-            </div>
-            <div class="event-card__meta-item">
-              <svg width="13" height="13" fill="none" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="3" stroke="currentColor" stroke-width="2"/></svg>
-              ${ev.location}
-            </div>
-          </div>
-        </div>
-      </div>`).join('') || '<div class="empty-state"><div class="empty-state__icon"><svg width="32" height="32" fill="none" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/><line x1="3" y1="10" x2="21" y2="10" stroke="currentColor" stroke-width="2"/></svg></div><div class="empty-state__title">No Events</div><div class="empty-state__body">Check back later for upcoming events and activities.</div></div>';
+    return filtered.map(ev => _evCard(ev)).join('')
+      || '<div class="empty-state" style="padding:var(--space-8) var(--space-4);"><div class="empty-state__icon"><svg width="32" height="32" fill="none" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/><line x1="3" y1="10" x2="21" y2="10" stroke="currentColor" stroke-width="2"/></svg></div><div class="empty-state__title">No Events</div><div class="empty-state__body">Check back later for upcoming events and activities.</div></div>';
   };
 
-  const upcomingHTML = await renderEvents('upcoming');
+  // Show 'all' by default so past+upcoming both visible
+  const allHTML = renderEvents('all');
 
   const el = document.getElementById('screen-events');
   el.innerHTML = `
-    <div style="display:flex;flex-direction:column;flex:1;min-height:0;background:var(--color-bg);">
-      ${UI.appBar('Events', false, UI.notifBellBtn())}
-      <div class="pill-header">
-        <div class="pill active" data-filter="upcoming" onclick="filterEvents('upcoming',this)">Upcoming</div>
-        <div class="pill" data-filter="past" onclick="filterEvents('past',this)">Past</div>
-        <div class="pill" data-filter="all" onclick="filterEvents('all',this)">All</div>
-      </div>
-      <div class="scroll-content">
-        <div class="page-content" id="events-content">
-          ${upcomingHTML}
-        </div>
+    ${UI.appBar('Events', false, UI.notifBellBtn())}
+    <div class="pill-header" id="events-pill-header">
+      <div class="pill active" data-filter="all" onclick="filterEvents('all',this)">All</div>
+      <div class="pill" data-filter="upcoming" onclick="filterEvents('upcoming',this)">Upcoming</div>
+      <div class="pill" data-filter="past" onclick="filterEvents('past',this)">Past</div>
+    </div>
+    <div class="scroll-content">
+      <div class="events-carousel" id="events-content">
+        ${allHTML}
       </div>
     </div>`;
 
   window._allEvents = events;
 });
 
-async function filterEvents(filter, btn) {
-  document.querySelectorAll('.pill-header .pill').forEach(p => p.classList.remove('active'));
+function filterEvents(filter, btn) {
+  const header = document.getElementById('events-pill-header');
+  if (header) header.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
   btn.classList.add('active');
   const events = window._allEvents || [];
   const filtered = events.filter(e => filter === 'all' || e.status === filter);
-  document.getElementById('events-content').innerHTML = filtered.map(ev => `
-    <div class="event-card" onclick="Router.navigate('event-detail',{eventId:'${ev.id}'})">
-      <div class="event-card__image-placeholder">
-        <svg width="40" height="40" fill="none" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" stroke="rgba(255,255,255,0.4)" stroke-width="2"/></svg>
-      </div>
-      <div class="event-card__body">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:var(--space-2);">
-          <div class="event-card__title" style="margin-bottom:0;">${ev.title}</div>
-          ${UI.badge(ev.category, ev.status === 'past' ? 'neutral' : 'primary')}
-        </div>
-        <div class="event-card__meta">
-          <div class="event-card__meta-item">
-            <svg width="13" height="13" fill="none" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/></svg>
-            ${UI.formatDate(ev.date)}
-          </div>
-          <div class="event-card__meta-item">
-            <svg width="13" height="13" fill="none" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="3" stroke="currentColor" stroke-width="2"/></svg>
-            ${ev.location}
-          </div>
-        </div>
-      </div>
-    </div>`).join('') || '<div class="empty-state"><div class="empty-state__title">No events</div></div>';
+  const container = document.getElementById('events-content');
+  container.innerHTML = filtered.map(ev => _evCard(ev)).join('')
+    || '<p style="padding:32px 16px;color:var(--color-text-secondary);font-size:14px;">No events found.</p>';
 }
 
 // ============================
@@ -1829,12 +1979,17 @@ Router.register('event-detail', async ({ eventId } = {}) => {
 
   const el = document.getElementById('screen-event-detail');
   el.innerHTML = `
-    <div style="display:flex;flex-direction:column;flex:1;min-height:0;background:var(--color-bg);">
-      <div style="background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));height:180px;position:relative;display:flex;align-items:center;justify-content:center;">
-        <button onclick="Router.back()" style="position:absolute;top:var(--space-3);left:var(--space-3);width:36px;height:36px;background:rgba(255,255,255,0.15);border:none;border-radius:var(--radius-full);display:flex;align-items:center;justify-content:center;cursor:pointer;color:white;">
+    <div class="screen-inner">
+      <div class="ev-detail__hero" style="background:${ev.themeColor ? 'linear-gradient(135deg,'+ev.themeColor+'cc,'+ev.themeColor+')' : 'linear-gradient(135deg,var(--color-primary),var(--color-secondary))'};">
+        ${ev.image
+          ? `<img class="ev-detail__hero-img" src="${ev.image}" alt="${ev.title}"
+               onerror="this.style.display='none';this.parentElement.classList.add('ev-detail__hero--placeholder')">`
+          : `<div class="ev-detail__hero-icon"><svg width="64" height="64" fill="none" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" stroke="rgba(255,255,255,0.45)" stroke-width="1.5"/><line x1="16" y1="2" x2="16" y2="6" stroke="rgba(255,255,255,0.45)" stroke-width="1.5"/><line x1="8" y1="2" x2="8" y2="6" stroke="rgba(255,255,255,0.45)" stroke-width="1.5"/><line x1="3" y1="10" x2="21" y2="10" stroke="rgba(255,255,255,0.45)" stroke-width="1.5"/></svg></div>`
+        }
+        <div class="ev-detail__hero-overlay"></div>
+        <button onclick="Router.back()" class="ev-detail__back-btn">
           <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><path d="M19 12H5M5 12l7-7M5 12l7 7" stroke="currentColor" stroke-width="2"/></svg>
         </button>
-        <svg width="60" height="60" fill="none" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" stroke="rgba(255,255,255,0.4)" stroke-width="2"/><line x1="16" y1="2" x2="16" y2="6" stroke="rgba(255,255,255,0.4)" stroke-width="2"/><line x1="8" y1="2" x2="8" y2="6" stroke="rgba(255,255,255,0.4)" stroke-width="2"/><line x1="3" y1="10" x2="21" y2="10" stroke="rgba(255,255,255,0.4)" stroke-width="2"/></svg>
       </div>
       <div class="scroll-content">
         <div class="page-content">
@@ -1848,13 +2003,23 @@ Router.register('event-detail', async ({ eventId } = {}) => {
 
           <div class="card" style="margin-bottom:var(--space-3);">
             <div class="info-row">
-              <span class="info-row__key">Date</span>
-              <span class="info-row__val">${UI.formatDate(ev.date)}</span>
+              <span class="info-row__key">Start Date</span>
+              <span class="info-row__val">${UI.formatDate(ev.startDate)}</span>
             </div>
+            ${ev.endDate && ev.endDate !== ev.startDate ? `
             <div class="info-row">
-              <span class="info-row__key">Time</span>
-              <span class="info-row__val">${ev.time}</span>
+              <span class="info-row__key">End Date</span>
+              <span class="info-row__val">${UI.formatDate(ev.endDate)}</span>
+            </div>` : ''}
+            <div class="info-row">
+              <span class="info-row__key">Start Time</span>
+              <span class="info-row__val">${UI.formatTime(ev.time)}</span>
             </div>
+            ${ev.endTime ? `
+            <div class="info-row">
+              <span class="info-row__key">End Time</span>
+              <span class="info-row__val">${UI.formatTime(ev.endTime)}</span>
+            </div>` : ''}
             <div class="info-row">
               <span class="info-row__key">Location</span>
               <span class="info-row__val">${ev.location}</span>
@@ -1901,7 +2066,7 @@ Router.register('trainers', async () => {
 
   const el = document.getElementById('screen-trainers');
   el.innerHTML = `
-    <div style="display:flex;flex-direction:column;flex:1;min-height:0;background:var(--color-bg);">
+    <div class="screen-inner">
       ${UI.appBar('Trainers', true, UI.notifBellBtn())}
       <div class="scroll-content">
         <div class="page-content">${trainersHTML}</div>
@@ -1918,7 +2083,7 @@ Router.register('trainer-detail', async ({ trainerId } = {}) => {
 
   const el = document.getElementById('screen-trainer-detail');
   el.innerHTML = `
-    <div style="display:flex;flex-direction:column;flex:1;min-height:0;background:var(--color-bg);">
+    <div class="screen-inner">
 
       <!-- Hero -->
       <div class="detail-hero" style="position:relative;text-align:center;">
@@ -2006,13 +2171,27 @@ Router.register('subscriptions', async () => {
     DataService.getPackages().catch(() => [])
   ]);
 
-  // ── Active Subscriptions ─────────────────────────────────────
-  const subsHTML = subs.length === 0
+  // ── Active Subscriptions — dedup: keep only the latest per kid+packageName ──
+  const dedupedSubs = (() => {
+    const seen = new Map();
+    subs.forEach(s => {
+      // Key = kidId (or kidName) + normalised packageName
+      const key = `${s.kidName || ''}_${(s.packageName || '').trim().toLowerCase()}`;
+      const existing = seen.get(key);
+      // Keep the one with the most recent startDate (or if equal, first seen = newest from DB order)
+      if (!existing || (s.startDate || '') > (existing.startDate || '')) {
+        seen.set(key, s);
+      }
+    });
+    return [...seen.values()];
+  })();
+
+  const subsHTML = dedupedSubs.length === 0
     ? `<div class="empty-state" style="margin-bottom:var(--space-4);">
          <div class="empty-state__title">No Active Subscriptions</div>
          <div class="empty-state__body">No packages have been assigned yet. Contact Minds\' Craft Center to get started.</div>
        </div>`
-    : subs.map(s => {
+    : dedupedSubs.map(s => {
         const isExpired  = s.status === 'expired' || s.status === 'none';
         const isExpiring = s.status === 'warning';
         // Determine Sessions Left display
@@ -2153,7 +2332,7 @@ Router.register('subscriptions', async () => {
 
   const el = document.getElementById('screen-subscriptions');
   el.innerHTML = `
-    <div style="display:flex;flex-direction:column;flex:1;min-height:0;background:var(--color-bg);">
+    <div class="screen-inner">
       ${UI.appBar('Subscriptions & Packages', true)}
       <div class="scroll-content">
         <div class="page-content">
@@ -2192,7 +2371,7 @@ Router.register('notifications', async () => {
 
   const el = document.getElementById('screen-notifications');
   el.innerHTML = `
-    <div style="display:flex;flex-direction:column;flex:1;min-height:0;background:var(--color-bg);">
+    <div class="screen-inner">
       ${UI.appBar('Notifications', true, `<button class="btn btn--ghost btn--sm" onclick="markAllRead()" style="font-size:12px;padding:6px 12px;">Mark all read</button>`)}
       <div class="scroll-content">
         <div style="background:white;border-radius:0;overflow:hidden;">
@@ -2229,7 +2408,7 @@ Router.register('more', async () => {
 
   const el = document.getElementById('screen-more');
   el.innerHTML = `
-    <div style="display:flex;flex-direction:column;flex:1;min-height:0;background:var(--color-bg);">
+    <div class="screen-inner">
       ${UI.appBar('More', false)}
 
       <div class="scroll-content">
@@ -2241,7 +2420,7 @@ Router.register('more', async () => {
               <div style="flex:1;">
                 <div style="font-size:17px;font-weight:700;">${parent.name}</div>
                 <div style="font-size:13px;color:var(--color-text-secondary);">${parent.email}</div>
-                <div style="font-size:12px;color:var(--color-primary);margin-top:3px;">Edit Profile →</div>
+
               </div>
             </div>
           </div>
@@ -2295,7 +2474,7 @@ Router.register('about', async () => {
 
   // Render shell immediately — hero updated after DB fetch
   el.innerHTML = `
-    <div style="display:flex;flex-direction:column;flex:1;min-height:0;background:var(--color-bg);">
+    <div class="screen-inner">
       <div class="about-hero" id="about-hero">
         <div style="background:white;border-radius:16px;padding:12px 20px;margin:0 auto var(--space-3);display:inline-block;box-shadow:0 4px 16px rgba(0,0,0,0.2);">
           <img src="icons/logo.png" alt="Minds' Craft" style="width:160px;height:auto;display:block;">
@@ -2473,7 +2652,7 @@ Router.register('profile', async () => {
 
   const el = document.getElementById('screen-profile');
   el.innerHTML = `
-    <div style="display:flex;flex-direction:column;flex:1;min-height:0;background:var(--color-bg);">
+    <div class="screen-inner">
       ${UI.appBar('Profile & Settings', true)}
       <div class="scroll-content">
         <div class="page-content">
@@ -2483,7 +2662,7 @@ Router.register('profile', async () => {
             <h2 style="font-size:20px;font-weight:700;">${parent.name}</h2>
             <p style="color:var(--color-text-secondary);font-size:14px;">${parent.email}</p>
             <p style="color:var(--color-text-secondary);font-size:14px;">${parent.phone}</p>
-            <button class="btn btn--secondary btn--sm" style="margin-top:var(--space-4);" onclick="UI.toast('Profile editing will be available in the next update.','✏️')">Edit Profile</button>
+
           </div>
 
           <!-- Account -->
@@ -2565,17 +2744,21 @@ function calcSessionsLeft(dayName, endDate, classTime) {
   if (!dayName || dayName === 'TBD') return '—';
   const dayIndex = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].indexOf(dayName);
   if (dayIndex < 0) return '—';
-  const now  = new Date();
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
-  const end = endDate ? new Date(endDate) : null;
-  if (!end) return '—';
+  const now   = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()); // local midnight
+  // Accept both Date objects and 'YYYY-MM-DD' strings
+  let end = null;
+  if (endDate instanceof Date) {
+    end = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+  } else if (typeof endDate === 'string' && endDate) {
+    end = new Date(endDate.replace(/-/g, '/'));
+  }
+  if (!end || isNaN(end.getTime())) return '—';
   end.setHours(23, 59, 59, 0);
   if (end < today) return 0;
 
-  // Determine start cursor: today if class day is today AND session hasn't started yet
-  const cursor = new Date(today);
   const diff = (dayIndex - today.getDay() + 7) % 7;
+  const cursor = new Date(today);
   cursor.setDate(cursor.getDate() + diff);
 
   // If today is the class day, check if the session time has already passed
@@ -2583,18 +2766,12 @@ function calcSessionsLeft(dayName, endDate, classTime) {
     const [hh, mm] = classTime.split(':').map(Number);
     const sessionStart = new Date(today);
     sessionStart.setHours(hh, mm, 0, 0);
-    if (now >= sessionStart) {
-      // Session already started/passed today — skip to next week
-      cursor.setDate(cursor.getDate() + 7);
-    }
+    if (now >= sessionStart) cursor.setDate(cursor.getDate() + 7);
   }
 
   let count = 0;
   const c = new Date(cursor);
-  while (c <= end) {
-    count++;
-    c.setDate(c.getDate() + 7);
-  }
+  while (c <= end) { count++; c.setDate(c.getDate() + 7); }
   return count;
 }
 
@@ -2658,15 +2835,15 @@ function buildCourseRow(cls, attendance, allSubs, hasLevelIds) {
   // Next session label — show "Today · HH:MM" if the next session is today
   let nextLabel;
   if (cls.nextSession) {
-    const nsDate = new Date(cls.nextSession);
+    const nsDate = new Date(cls.nextSession.replace(/-/g, '/'));
     const todayDate = new Date();
     const isToday = nsDate.getFullYear() === todayDate.getFullYear() &&
                     nsDate.getMonth()    === todayDate.getMonth()    &&
                     nsDate.getDate()     === todayDate.getDate();
     if (isToday) {
-      nextLabel = `Today · ${cls.time}`;
+      nextLabel = `Today · ${UI.formatTime(cls.time)}`;
     } else {
-      nextLabel = `${(cls.nextSessionDay || '').substring(0, 3)} ${nsDate.getDate()} · ${cls.time}`;
+      nextLabel = `${(cls.nextSessionDay || '').substring(0, 3)} ${nsDate.getDate()} · ${UI.formatTime(cls.time)}`;
     }
   } else {
     nextLabel = cls.time || '—';
@@ -2719,7 +2896,7 @@ function buildCourseRow(cls, attendance, allSubs, hasLevelIds) {
   const attPresent = clsAtt.filter(r => r.status === 'present' || r.status === 'late').length;
   // Attendance % = (attended / provisioned total) × 100
   const attRate    = provisionedSessions > 0 ? Math.round((attPresent / provisionedSessions) * 100) : null;
-  const sessLeft   = calcSessionsLeft(cls.days[0], pkgEnd, cls.time);
+  const sessLeft   = calcSessionsLeft(cls.days[0], sub?.expiryDate || null, cls.time);
   const sessColor  = (sessLeft !== '—' && sessLeft <= 2) ? 'var(--color-warning)' : 'var(--color-primary)';
 
   return `
