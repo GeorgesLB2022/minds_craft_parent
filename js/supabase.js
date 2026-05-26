@@ -3,6 +3,18 @@
  * Real backend integration for the Parent Portal
  */
 
+// ── Local date helper ──────────────────────────────────────────────────────
+// NEVER use toISOString() for date calculations — it converts to UTC and
+// shifts the date by the timezone offset (Lebanon = UTC+3 → subtracts 3h).
+// Always use this helper to get YYYY-MM-DD in the device's LOCAL timezone.
+function _localDateStr(d) {
+  const yy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+function _todayLocalStr() { return _localDateStr(new Date()); }
+
 const SUPABASE_URL  = 'https://xiatsareoruybucwkpkc.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhpYXRzYXJlb3J1eWJ1Y3drcGtjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzNjgzOTcsImV4cCI6MjA4OTk0NDM5N30.l14cNOUt1PKqL0hl5VL5wpt2JRB9rG_gQlJeYeJNIqU';
 
@@ -111,7 +123,8 @@ const AuthService = {
   async login(emailInput, passwordInput) {
     try {
       // Step 1: Sign in with Supabase Auth
-      const authResp = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+      // Retry once on 500 (Supabase "Database error querying schema" = project waking up)
+      const doAuthFetch = () => fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
         method: 'POST',
         headers: {
           'apikey':       SUPABASE_ANON,
@@ -122,6 +135,15 @@ const AuthService = {
           password: passwordInput
         })
       });
+
+      let authResp = await doAuthFetch();
+
+      // Auto-retry once after 3s if Supabase returns 500 (project waking up)
+      if (authResp.status >= 500) {
+        console.warn('[Auth] Got 500 on first attempt — retrying in 3s...');
+        await new Promise(r => setTimeout(r, 3000));
+        authResp = await doAuthFetch();
+      }
 
       const authData = await authResp.json();
 
@@ -141,10 +163,10 @@ const AuthService = {
         } else if (authResp.status === 422) {
           friendlyMsg = 'Format d\'email invalide.';
         } else if (authResp.status >= 500) {
-          friendlyMsg = 'Erreur serveur. Veuillez réessayer dans quelques instants.';
+          friendlyMsg = `Erreur serveur (${authResp.status}). Veuillez réessayer.\n\nDétail: ${authData.error_description || authData.message || authData.msg || JSON.stringify(authData)}`;
         }
 
-        console.warn('[Auth] Login failed:', authData);
+        console.warn('[Auth] Login failed — status:', authResp.status, '— body:', authData);
         return { success: false, error: friendlyMsg };
       }
 
@@ -404,21 +426,21 @@ const DataService = {
     try {
       // Strategy 1: parent_id column
       let rows = await sbGet(
-        `users?parent_id=eq.${userId}&user_type=eq.student&select=id,email,full_name,phone,avatar_url,status,user_type,notes,created_at`,
+        `users?parent_id=eq.${userId}&user_type=eq.student&select=id,email,full_name,phone,avatar_url,avatar_color,status,user_type,notes,created_at`,
         token
       ).catch(() => null);
       if (rows?.length) { console.log('[getKids] strategy1 →', rows.map(r=>r.full_name)); return rows.map(u => this._mapKid(u)); }
 
       // Strategy 2: guardian_id column
       rows = await sbGet(
-        `users?guardian_id=eq.${userId}&select=id,email,full_name,phone,avatar_url,status,user_type,notes,created_at`,
+        `users?guardian_id=eq.${userId}&select=id,email,full_name,phone,avatar_url,avatar_color,status,user_type,notes,created_at`,
         token
       ).catch(() => null);
       if (rows?.length) { console.log('[getKids] strategy2 →', rows.map(r=>r.full_name)); return rows.map(u => this._mapKid(u)); }
 
       // Strategy 3: RLS-filtered all students
       rows = await sbGet(
-        `users?user_type=eq.student&select=id,email,full_name,phone,avatar_url,status,user_type,notes,created_at`,
+        `users?user_type=eq.student&select=id,email,full_name,phone,avatar_url,avatar_color,status,user_type,notes,created_at`,
         token
       ).catch(() => []);
       console.log('[getKids] strategy3 →', (rows||[]).map(r=>r.full_name));
@@ -432,10 +454,17 @@ const DataService = {
   async getKid(id) {
     const token = AuthService.getToken();
     const rows = await sbGet(
-      `users?id=eq.${id}&select=id,email,full_name,phone,avatar_url,status,user_type,notes,created_at`,
+      `users?id=eq.${id}&select=id,email,full_name,phone,avatar_url,avatar_color,status,user_type,notes,created_at`,
       token
     );
     return rows && rows[0] ? this._mapKid(rows[0]) : null;
+  },
+
+  // ── UPDATE KID AVATAR ─────────────────────────────────────────────────────
+  // Saves base64 JPEG (compressed to 200×200 by caller) into public.users.avatar_url
+  async updateKidAvatar(kidId, base64) {
+    const token = AuthService.getToken();
+    await sbPatch(`users?id=eq.${kidId}`, { avatar_url: base64 }, token);
   },
 
   // ── ATTENDANCE ─────────────────────────────────────────────
@@ -512,9 +541,9 @@ const DataService = {
   async getKidClasses(kidId) {
     const token = AuthService.getToken();
     try {
-      // Get enrollments for this student
+      // Get enrollments for this student — include schedule_slot (the student's specific slot)
       const enrollments = await sbGet(
-        `enrollments?student_id=eq.${kidId}&status=eq.active&select=id,student_id,level_id,status,enrolled_at&limit=10`,
+        `enrollments?student_id=eq.${kidId}&status=eq.active&select=id,student_id,level_id,status,enrolled_at,schedule_slot&limit=10`,
         token
       );
       if (!enrollments || enrollments.length === 0) return [];
@@ -522,10 +551,41 @@ const DataService = {
       const levelIds = enrollments.map(e => e.level_id).filter(Boolean);
       if (levelIds.length === 0) return [];
 
+      // Build a map: level_id → schedule_slot (e.g. "Thursday 17:30:00-19:00:00")
+      const slotByLevel = {};
+      enrollments.forEach(e => {
+        if (e.level_id && e.schedule_slot) slotByLevel[e.level_id] = e.schedule_slot;
+      });
+
       const levels = await sbGet(
         `levels?id=in.(${levelIds.join(',')})&select=id,course_id,name,order_num,trainer_id,capacity,day_of_week,start_time,end_time,status,description`,
         token
       );
+
+      // Override level day/time with enrollment schedule_slot when available
+      // schedule_slot format: "Thursday 17:30:00-19:00:00"
+      levels.forEach(l => {
+        const slot = slotByLevel[l.id];
+        if (!slot) return;
+        // Parse day name
+        const parts = slot.trim().split(' ');          // ["Thursday", "17:30:00-19:00:00"]
+        const dayPart = parts[0];                      // "Thursday"
+        const timePart = parts[1] || '';               // "17:30:00-19:00:00"
+        const dayMap = {
+          'sunday':0,'monday':1,'tuesday':2,'wednesday':3,
+          'thursday':4,'friday':5,'saturday':6
+        };
+        if (dayMap[dayPart.toLowerCase()] !== undefined) {
+          l.day_of_week = dayPart;                     // override with student's real day
+        }
+        if (timePart.includes('-')) {
+          const [startT, endT] = timePart.split('-');
+          if (startT) l.start_time = startT;           // override with student's real start time
+          if (endT)   l.end_time   = endT;
+        } else if (timePart) {
+          l.start_time = timePart;
+        }
+      });
 
       // Get course names
       const courseIds = [...new Set(levels.map(l => l.course_id).filter(Boolean))];
@@ -814,17 +874,19 @@ const DataService = {
 
       const kidIds = kids.map(k => k.id);
 
-      // Fetch allocations + enrollments + levels in parallel
+      // Fetch allocations + enrollments (with schedule_slot) + levels in parallel
       const [allocations, enrollments] = await Promise.all([
         sbGet(`student_allocations?student_id=in.(${kidIds.join(',')})&select=*&order=created_at.desc`, token).catch(() => []),
-        sbGet(`enrollments?student_id=in.(${kidIds.join(',')})&status=eq.active&select=id,student_id,level_id`, token).catch(() => [])
+        sbGet(`enrollments?student_id=in.(${kidIds.join(',')})&status=eq.active&select=id,student_id,level_id,schedule_slot`, token).catch(() => [])
       ]);
 
-      // Build kidId → [level_ids] map from enrollments
+      // Build kidId → [level_ids] map and level_id → schedule_slot map
       const kidLevelIds = {};
+      const slotByLevel = {}; // level_id → schedule_slot string
       enrollments.forEach(e => {
         if (!kidLevelIds[e.student_id]) kidLevelIds[e.student_id] = [];
         kidLevelIds[e.student_id].push(e.level_id);
+        if (e.level_id && e.schedule_slot) slotByLevel[e.level_id] = e.schedule_slot;
       });
 
       // Fetch all relevant levels (for day_of_week + start_time + course_id)
@@ -835,7 +897,20 @@ const DataService = {
           `levels?id=in.(${allLevelIds.join(',')})&select=id,course_id,day_of_week,start_time`,
           token
         ).catch(() => []);
-        levels.forEach(l => { levelMap[l.id] = l; });
+        // Apply schedule_slot override (same logic as getKidClasses)
+        levels.forEach(l => {
+          const slot = slotByLevel[l.id];
+          if (slot) {
+            const parts = slot.trim().split(' ');
+            const dayPart  = parts[0];
+            const timePart = parts[1] || '';
+            const dMap = {'sunday':0,'monday':1,'tuesday':2,'wednesday':3,'thursday':4,'friday':5,'saturday':6};
+            if (dMap[dayPart.toLowerCase()] !== undefined) l.day_of_week = dayPart;
+            if (timePart.includes('-')) { const [st] = timePart.split('-'); if (st) l.start_time = st; }
+            else if (timePart) l.start_time = timePart;
+          }
+          levelMap[l.id] = l;
+        });
       }
 
       // Fetch packages + which courses each package covers (package_courses)
@@ -890,7 +965,7 @@ const DataService = {
           const classTime = lev.start_time ? lev.start_time.substring(0, 5) : null;
           const now   = new Date();
           const today = new Date(now); today.setHours(0, 0, 0, 0);
-          const end   = new Date(sub.expiryDate + 'T00:00:00'); end.setHours(23, 59, 59, 0);
+          const end   = new Date((sub.expiryDate || '').replace(/-/g, '/')); end.setHours(23, 59, 59, 0);
           if (end < today) return 0;
           const diff   = (dayIndex - today.getDay() + 7) % 7;
           const cursor = new Date(today);
@@ -911,8 +986,8 @@ const DataService = {
           const dayName = dayMap[dayRaw] || dayMap[(dayRaw + '').toLowerCase()] || null;
           if (!dayName || dayName === 'TBD' || !sub.startDate) return 0;
           const dayIndex = DAY_NAMES.indexOf(dayName);
-          const st = new Date(sub.startDate  + 'T00:00:00');
-          const en = new Date(sub.expiryDate + 'T00:00:00'); en.setHours(23, 59, 59, 0);
+          const st = new Date((sub.startDate  || '').replace(/-/g, '/'));
+          const en = new Date((sub.expiryDate || '').replace(/-/g, '/')); en.setHours(23, 59, 59, 0);
           const diff = (dayIndex - st.getDay() + 7) % 7;
           const c = new Date(st); c.setDate(c.getDate() + diff);
           let cnt = 0;
@@ -1087,24 +1162,34 @@ const DataService = {
   async getEvents(filter = 'all') {
     const token = AuthService.getToken();
     try {
-      let query = `events?select=id,title,description,status,created_at,updated_at&order=created_at.desc&limit=30`;
+      const rows = await sbGet(
+        `events?select=id,title,description,start_date,end_date,start_time,end_time,location,capacity,status,theme_color,image_url,image_key,created_at,updated_at&order=start_date.desc.nullslast,start_time.desc.nullslast&limit=50`,
+        token
+      ).catch((e) => { console.error('[getEvents] fetch error:', e); return []; });
+      // Déduplique par id — au cas où Supabase retourne des doublons
+      const seen = new Set();
+      const unique = (rows || []).filter(r => { if (seen.has(r.id)) return false; seen.add(r.id); return true; });
+      console.log('[getEvents] raw:', rows?.length, 'unique:', unique.length);
+      const mapped = unique.map(e => this._mapEvent(e));
 
-      const rows = await sbGet(query, token).catch(() => []);
-      const mapped = rows.map(e => this._mapEvent(e));
+      // Sort: newest → oldest (desc) — pure ISO string compare on YYYY-MM-DD
+      const _dateStr = e => String(e.date || e.startDate || '0000-01-01').substring(0, 10);
+      const _desc    = (a, b) => (_dateStr(a) > _dateStr(b) ? -1 : _dateStr(a) < _dateStr(b) ? 1 : 0);
 
-      if (filter === 'upcoming') return mapped.filter(e => e.status === 'upcoming');
-      if (filter === 'past')     return mapped.filter(e => e.status === 'past');
-      return mapped;
+      let result;
+      if (filter === 'upcoming') result = mapped.filter(e => e.status === 'upcoming').sort(_desc);
+      else if (filter === 'past') result = mapped.filter(e => e.status === 'past').sort(_desc);
+      else result = mapped.sort(_desc);
+
+      console.log('[getEvents] sorted order:', result.map(e => `${e.title} → ${_dateStr(e)}`));
+      return result;
     } catch (e) { return []; }
   },
 
   async getEvent(id) {
     const token = AuthService.getToken();
     try {
-      const rows = await sbGet(
-        `events?id=eq.${id}&select=id,title,description,status,created_at,updated_at`,
-        token
-      );
+      const rows = await sbGet(`events?id=eq.${id}&select=id,title,description,start_date,end_date,start_time,end_time,location,capacity,status,theme_color,image_url,image_key,created_at,updated_at`, token);
       return rows && rows[0] ? this._mapEvent(rows[0]) : null;
     } catch (e) { return null; }
   },
@@ -1187,7 +1272,8 @@ const DataService = {
       firstName:        (u.full_name || '').split(' ')[0] || 'Student',
       email:            u.email,
       phone:            u.phone || '',
-      avatar:           u.avatar_url || null,
+      avatar:           u.avatar_url  || null,   // base64 or URL — shown as <img>
+      avatarColor:      u.avatar_color || null,  // hex fallback colour from DB
       initials:         this._initials(u.full_name || u.email),
       level:            'Active Student',
       levelCode:        'AS',
@@ -1315,17 +1401,32 @@ const DataService = {
     const dayRaw = l.day_of_week;
     const dayName = dayMap[dayRaw] || dayMap[(dayRaw+'').toLowerCase()] || (dayRaw+'') || 'TBD';
 
-    // Calculate next session
-    const today = new Date();
+    // Calculate next session — all arithmetic in LOCAL time (no toISOString = no UTC shift)
+    const now = new Date();
     let nextSession = null;
     let nextSessionDay = dayName;
     if (dayName && dayName !== 'TBD') {
       const dayIndex = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].indexOf(dayName);
       if (dayIndex >= 0) {
-        const diff = (dayIndex - today.getDay() + 7) % 7;
-        nextSession = new Date(today);
-        nextSession.setDate(today.getDate() + diff);
-        nextSession = nextSession.toISOString().split('T')[0];
+        // diff = days until next occurrence of this weekday (0 = today)
+        let diff = (dayIndex - now.getDay() + 7) % 7;
+
+        // If today IS the class day, check whether the session time has already passed
+        if (diff === 0 && l.start_time) {
+          const [hh, mm] = l.start_time.split(':').map(Number);
+          const sessionStart = new Date(now);
+          sessionStart.setHours(hh, mm, 0, 0);
+          if (now >= sessionStart) diff = 7; // already passed → jump to next week
+        } else if (diff === 0 && !l.start_time) {
+          // No time info and today is the class day → assume it's upcoming (keep diff=0)
+        }
+
+        // Build the target date using LOCAL arithmetic
+        const next = new Date(now);
+        next.setHours(12, 0, 0, 0);   // noon local — safe against any DST edge
+        next.setDate(now.getDate() + diff);
+        nextSession    = _localDateStr(next);
+        nextSessionDay = dayName;
       }
     }
 
@@ -1390,7 +1491,7 @@ const DataService = {
 
     return {
       id:          r.id,
-      date:        r.created_at ? r.created_at.split('T')[0] : new Date().toISOString().split('T')[0],
+      date:        r.created_at ? r.created_at.split('T')[0] : _todayLocalStr(),
       title:       'Assessment',
       trainer:     '—',
       category:    'Skills Evaluation',
@@ -1407,7 +1508,7 @@ const DataService = {
     const endDate    = a.end_date;
 
     // Compare dates as local calendar dates (ignore time / timezone shifts)
-    const todayStr   = new Date().toISOString().split('T')[0]; // YYYY-MM-DD local
+    const todayStr   = _todayLocalStr(); // YYYY-MM-DD local
     const today      = new Date(todayStr + 'T00:00:00');
     const expiry     = endDate ? new Date(endDate + 'T00:00:00')
                                : new Date(today.getTime() + 30 * 86400000);
@@ -1452,8 +1553,8 @@ const DataService = {
       kidName:       kidName || 'Student',
       packageName:   pkg?.name || 'Training Package',
       plan:          planLabel,
-      startDate:     startDate || new Date().toISOString().split('T')[0],
-      expiryDate:    endDate   || expiry.toISOString().split('T')[0],
+      startDate:     startDate || _todayLocalStr(),
+      expiryDate:    endDate   || _localDateStr(expiry),
       sessionsTotal: sessTotal,
       sessionsUsed:  sessUsed,
       sessionsLeft:  sessLeft,
@@ -1468,20 +1569,55 @@ const DataService = {
   },
 
   _mapEvent(e) {
-    // Determine status from created_at / updated_at since we have no date column
-    // Events are "upcoming" by default unless status field says otherwise
-    const status = (e.status === 'completed' || e.status === 'past' || e.status === 'cancelled')
-      ? 'past' : 'upcoming';
+    // Status: toujours dériver depuis la date réelle (end_date ou start_date)
+    // pour que le filtre Upcoming/Past soit fiable même si la DB est désynchronisée
+    let status = 'upcoming';
+    const refDateStr = e.end_date || e.start_date || e.date || null;
+    if (refDateStr) {
+      const ref = new Date(refDateStr.replace(/-/g, '/'));
+      ref.setHours(23, 59, 59, 0);
+      status = ref < new Date() ? 'past' : 'upcoming';
+    } else if (e.status === 'completed' || e.status === 'past' || e.status === 'cancelled') {
+      status = 'past';
+    }
+
+    // Date: prefer start_date, fallback to date, then created_at
+    const startDate = e.start_date || e.date || (e.created_at ? e.created_at.split('T')[0] : _todayLocalStr());
+    const endDate   = e.end_date || startDate;
+
+    // Time: prefer start_time, fallback to time field
+    const startTime = e.start_time ? e.start_time.substring(0,5) : (e.time || null);
+    const endTime   = e.end_time   ? e.end_time.substring(0,5)   : null;
+
+    // Image priority:
+    // 1. image_url — direct URL or base64 stored in the DB column (added via ALTER TABLE)
+    // 2. image_key — Supabase Storage key → build public URL from bucket "events"
+    let image = null;
+    if (e.image_url && (e.image_url.startsWith('data:') || e.image_url.startsWith('http'))) {
+      image = e.image_url;
+    } else if (e.image_key) {
+      // image_key can be a full URL (https://...) or a Storage key (events/photo.jpg)
+      if (e.image_key.startsWith('http')) {
+        image = e.image_key;
+      } else {
+        image = `${SUPABASE_URL}/storage/v1/object/public/events/${e.image_key}`;
+      }
+    }
+    const themeColor = e.theme_color || null;
 
     return {
       id:          e.id,
       title:       e.title || 'Event',
-      date:        e.created_at ? e.created_at.split('T')[0] : new Date().toISOString().split('T')[0],
-      time:        '—',
-      location:    'Minds\' Craft Center',
-      category:    'Event',
+      date:        startDate,
+      endDate:     endDate,
+      time:        startTime || '—',
+      endTime:     endTime,
+      startDate:   startDate,
+      location:    e.location || e.venue || 'Minds\' Craft Center',
+      category:    e.category || e.type || 'Event',
       description: e.description || '',
-      image:       null,
+      image:       image,
+      themeColor:  themeColor,
       status:      status
     };
   },
