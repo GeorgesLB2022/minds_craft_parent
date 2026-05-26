@@ -1,5 +1,5 @@
-// SW v20250430n — splash+login now use logo.png (same as About page, always works)
-const SW_VERSION = '20250430n';
+// SW v20250524g — events sort debug + fixed comparator
+const SW_VERSION = '20250524g';
 
 self.addEventListener('install', () => {
   console.log('[SW] Installing version', SW_VERSION);
