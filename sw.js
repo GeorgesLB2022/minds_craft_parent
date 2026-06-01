@@ -1,5 +1,5 @@
-// SW v20250524g — events sort debug + fixed comparator
-const SW_VERSION = '20250524g';
+// SW v20250524u — fix: overallLevel from skills majority vote; level_name from notes.level_name
+const SW_VERSION = '20250524u';
 
 self.addEventListener('install', () => {
   console.log('[SW] Installing version', SW_VERSION);
