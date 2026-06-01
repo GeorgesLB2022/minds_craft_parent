@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Assessments Debug — Minds' Craft</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; padding: 24px 16px 60px; }
+    h1 { font-size: 22px; font-weight: 800; color: white; margin-bottom: 4px; }
+    .sub { font-size: 13px; color: #64748b; margin-bottom: 24px; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 14px; padding: 20px; margin-bottom: 16px; }
+    .card h2 { font-size: 13px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 14px; }
+    label { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 5px; font-weight: 500; }
+    input { width: 100%; padding: 10px 12px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #e2e8f0; font-size: 13px; margin-bottom: 12px; font-family: monospace; }
+    input:focus { outline: none; border-color: #6366f1; }
+    .btn { padding: 11px 22px; border-radius: 9px; font-size: 14px; font-weight: 700; cursor: pointer; border: none; transition: all 0.15s; }
+    .btn-primary { background: #6366f1; color: white; }
+    .btn-primary:hover { background: #4f46e5; }
+    .btn-primary:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
+    .btn-sm { padding: 7px 14px; font-size: 12px; border-radius: 7px; }
+    .btn-blue  { background: #0284c7; color: white; }
+    .btn-green { background: #059669; color: white; }
+    .btn-rose  { background: #e11d48; color: white; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+
+    /* Status */
+    .status { padding: 6px 14px; border-radius: 99px; font-size: 12px; font-weight: 700; display: inline-block; }
+    .status-ok  { background: #052e16; color: #4ade80; border: 1px solid #166534; }
+    .status-err { background: #2d1515; color: #f87171; border: 1px solid #7f1d1d; }
+    .status-warn{ background: #2d2006; color: #fbbf24; border: 1px solid #92400e; }
+
+    /* Table */
+    .tbl-wrap { overflow-x: auto; margin-top: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { background: #0f172a; color: #94a3b8; padding: 8px 10px; text-align: left; white-space: nowrap; border-bottom: 2px solid #334155; }
+    td { padding: 8px 10px; border-bottom: 1px solid #1e293b; color: #e2e8f0; vertical-align: top; max-width: 300px; word-break: break-word; }
+    tr:hover td { background: #1a2744; }
+    .mono { font-family: monospace; color: #38bdf8; }
+    .pill { display: inline-block; padding: 2px 9px; border-radius: 99px; font-size: 11px; font-weight: 700; margin: 1px; }
+    .pill-green  { background: #052e16; color: #4ade80; }
+    .pill-blue   { background: #0c1a3d; color: #60a5fa; }
+    .pill-purple { background: #1e0b3d; color: #c084fc; }
+    .pill-yellow { background: #2d2006; color: #fbbf24; }
+    .pill-red    { background: #2d1515; color: #f87171; }
+
+    /* Section result */
+    #result-login, #result-students, #result-assessments, #result-raw { min-height: 40px; }
+    .empty { color: #475569; font-style: italic; font-size: 13px; padding: 8px 0; }
+    .err-box { background: #2d1515; border: 1px solid #7f1d1d; border-radius: 8px; padding: 12px; color: #f87171; font-size: 13px; font-family: monospace; margin-top: 8px; }
+    .info-box { background: #0c2040; border: 1px solid #1e40af; border-radius: 8px; padding: 12px; color: #93c5fd; font-size: 13px; margin-top: 8px; }
+    .json-box { background: #020617; border-radius: 8px; padding: 14px; font-family: monospace; font-size: 11px; color: #4ade80; white-space: pre-wrap; max-height: 400px; overflow-y: auto; margin-top: 10px; line-height: 1.6; }
+
+    .section-title { font-size: 16px; font-weight: 700; color: white; margin-bottom: 4px; }
+    .count-badge { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 99px; background: #1e293b; color: #94a3b8; border: 1px solid #334155; margin-left: 8px; }
+
+    /* Score bar */
+    .score-bar { background: #0f172a; border-radius: 4px; height: 6px; margin-top: 3px; }
+    .score-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, #6366f1, #a855f7); }
+  </style>
+</head>
+<body>
+<div style="max-width:900px;margin:0 auto;">
+
+  <h1>🔬 Assessments Debug</h1>
+  <p class="sub">Minds' Craft — Supabase direct inspection · <span id="sb-url" class="mono" style="font-size:11px;"></span></p>
+
+  <!-- Step 1: Login -->
+  <div class="card">
+    <h2>Step 1 — Login as Parent</h2>
+    <label>Email</label>
+    <input type="email" id="email" placeholder="parent@email.com">
+    <label>Password (phone number)</label>
+    <input type="password" id="password" placeholder="password / phone">
+    <div class="row">
+      <button class="btn btn-primary" onclick="doLogin()">🔑 Login</button>
+      <span id="login-status"></span>
+    </div>
+    <div id="result-login"></div>
+  </div>
+
+  <!-- Step 2: Students -->
+  <div class="card">
+    <h2>Step 2 — Load Students (kids)</h2>
+    <div class="row">
+      <button class="btn btn-blue btn-sm" onclick="loadStudents()">👶 Load Students</button>
+    </div>
+    <div id="result-students"><p class="empty">Login first, then load students.</p></div>
+  </div>
+
+  <!-- Step 3: Assessments for selected student -->
+  <div class="card">
+    <h2>Step 3 — Raw Assessments from DB</h2>
+    <label>Student UUID (click a student above to auto-fill)</label>
+    <input type="text" id="student-id" placeholder="UUID of student">
+    <div class="row">
+      <button class="btn btn-green btn-sm" onclick="loadAssessments()">📋 Load Assessments</button>
+      <button class="btn btn-sm" style="background:#334155;color:#e2e8f0;" onclick="loadAssessmentsAnon()">🔓 Try Anon Key</button>
+    </div>
+    <div id="result-assessments"><p class="empty">Select a student first.</p></div>
+  </div>
+
+  <!-- Step 4: Raw JSON -->
+  <div class="card">
+    <h2>Step 4 — Raw JSON Response</h2>
+    <div id="result-raw"><p class="empty">No data yet.</p></div>
+  </div>
+
+</div>
+
+<script>
+const SB_URL  = 'https://xiatsareoruybucwkpkc.supabase.co';
+const SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhpYXRzYXJlb3J1eWJ1Y3drcGtjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzNjgzOTcsImV4cCI6MjA4OTk0NDM5N30.l14cNOUt1PKqL0hl5VL5wpt2JRB9rG_gQlJeYeJNIqU';
+
+document.getElementById('sb-url').textContent = SB_URL;
+
+let _token = null;
+let _userId = null;
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function headers(token) {
+  return {
+    'Content-Type':  'application/json',
+    'apikey':        SB_ANON,
+    'Authorization': `Bearer ${token || SB_ANON}`,
+    'Accept':        'application/json'
+  };
+}
+
+async function sbFetch(path, token) {
+  const url = `${SB_URL}/rest/v1/${path}`;
+  const r   = await fetch(url, { headers: headers(token), cache: 'no-store' });
+  const body = await r.json().catch(() => null);
+  return { ok: r.ok, status: r.status, body };
+}
+
+function statusPill(ok, status) {
+  const cls = ok ? 'status-ok' : status === 403 || status === 401 ? 'status-err' : 'status-warn';
+  return `<span class="status ${cls}">HTTP ${status} ${ok ? '✅' : '❌'}</span>`;
+}
+
+function selectStudent(id, name) {
+  document.getElementById('student-id').value = id;
+  document.getElementById('result-assessments').innerHTML = `<p class="info-box">Student set to <strong>${name}</strong> (${id}). Click "Load Assessments".</p>`;
+}
+
+// ── Step 1: Login ──────────────────────────────────────────────────────────
+async function doLogin() {
+  const email = document.getElementById('email').value.trim();
+  const pass  = document.getElementById('password').value.trim();
+  const el    = document.getElementById('result-login');
+  const st    = document.getElementById('login-status');
+  if (!email || !pass) { el.innerHTML = '<p class="err-box">Enter email and password.</p>'; return; }
+
+  st.innerHTML = '⏳ Logging in…';
+  el.innerHTML = '';
+
+  const r = await fetch(`${SB_URL}/auth/v1/token?grant_type=password`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', 'apikey': SB_ANON },
+    body:    JSON.stringify({ email, password: pass })
+  });
+  const data = await r.json().catch(() => ({}));
+
+  if (!r.ok || !data.access_token) {
+    st.innerHTML = '<span class="status status-err">Login failed</span>';
+    el.innerHTML = `<div class="err-box">Error: ${data.error_description || data.message || JSON.stringify(data)}</div>`;
+    return;
+  }
+
+  _token  = data.access_token;
+  _userId = data.user?.id;
+  st.innerHTML = '<span class="status status-ok">✅ Logged in</span>';
+  el.innerHTML = `
+    <div class="info-box">
+      <strong>User:</strong> ${data.user?.email}<br>
+      <strong>User ID:</strong> <span class="mono">${_userId}</span><br>
+      <strong>Token:</strong> <span class="mono">${_token.substring(0,40)}…</span>
+    </div>`;
+}
+
+// ── Step 2: Load Students ──────────────────────────────────────────────────
+async function loadStudents() {
+  const el = document.getElementById('result-students');
+  if (!_token) { el.innerHTML = '<p class="err-box">Login first.</p>'; return; }
+  el.innerHTML = '⏳ Fetching students…';
+
+  // Try parent_id first, then guardian_id, then RLS-filtered
+  const strategies = [
+    `users?parent_id=eq.${_userId}&user_type=eq.student&select=id,full_name,avatar_url,avatar_color,status`,
+    `users?guardian_id=eq.${_userId}&select=id,full_name,avatar_url,avatar_color,status&user_type=eq.student`,
+    `users?user_type=eq.student&select=id,full_name,avatar_url,avatar_color,status`
+  ];
+
+  let found = [], strategyUsed = '';
+  for (const [i, path] of strategies.entries()) {
+    const { ok, status, body } = await sbFetch(path, _token);
+    if (ok && Array.isArray(body) && body.length > 0) {
+      found = body; strategyUsed = `Strategy ${i+1}`; break;
+    }
+  }
+
+  if (!found.length) {
+    el.innerHTML = `<div class="err-box">No students found for this parent account.<br>Check RLS policies on <code>users</code> table.</div>`;
+    return;
+  }
+
+  el.innerHTML = `
+    <p class="info-box" style="margin-bottom:10px;">✅ ${found.length} student(s) found via ${strategyUsed}. Click a name to select.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Name</th><th>UUID</th><th>Status</th><th>Avatar</th><th>Action</th></tr></thead>
+        <tbody>
+          ${found.map(s => `
+            <tr>
+              <td><strong>${s.full_name || '—'}</strong></td>
+              <td><span class="mono" style="font-size:10px;">${s.id}</span></td>
+              <td><span class="pill ${s.status === 'active' ? 'pill-green' : 'pill-red'}">${s.status || '—'}</span></td>
+              <td>${s.avatar_url ? '<span class="pill pill-blue">Has photo</span>' : '<span class="pill pill-yellow">No photo</span>'}</td>
+              <td><button class="btn btn-primary btn-sm" onclick="selectStudent('${s.id}','${(s.full_name||'').replace(/'/g,"\\'")}')">Select</button></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+// ── Step 3: Load Assessments ───────────────────────────────────────────────
+async function loadAssessments(useAnon = false) {
+  const kidId = document.getElementById('student-id').value.trim();
+  const el    = document.getElementById('result-assessments');
+  const raw   = document.getElementById('result-raw');
+  if (!kidId) { el.innerHTML = '<p class="err-box">Enter a student UUID first.</p>'; return; }
+
+  const tok = useAnon ? SB_ANON : (_token || SB_ANON);
+  el.innerHTML  = `⏳ Fetching assessments${useAnon ? ' (anon key)' : ''}…`;
+  raw.innerHTML = '';
+
+  // Query 1: full schema
+  const q1 = `assessments?student_id=eq.${kidId}&select=id,student_id,skill_key,skill_label,category,score,assessed_at,notes&order=assessed_at.desc.nullslast&limit=100`;
+  const r1  = await sbFetch(q1, tok);
+
+  // Query 2: minimal (no assessed_at in case column missing)
+  const q2  = `assessments?student_id=eq.${kidId}&select=id,student_id,score,assessed_at,notes&order=assessed_at.desc&limit=100`;
+  const r2  = await sbFetch(q2, tok);
+
+  // Query 3: no filter — table access probe
+  const q3  = `assessments?select=id,student_id,assessed_at&limit=5`;
+  const r3  = await sbFetch(q3, tok);
+
+  // ── Display results ────────────────────────────────────────────
+  let html = `
+    <div style="margin-bottom:12px;">
+      <div style="margin-bottom:6px;"><strong>Query 1</strong> (full schema) ${statusPill(r1.ok, r1.status)}</div>
+      <div style="margin-bottom:6px;"><strong>Query 2</strong> (no notes)   ${statusPill(r2.ok, r2.status)}</div>
+      <div style="margin-bottom:6px;"><strong>Query 3</strong> (table probe) ${statusPill(r3.ok, r3.status)} — ${r3.ok ? (r3.body?.length + ' rows visible') : 'blocked'}</div>
+    </div>`;
+
+  const rows = (r1.ok && Array.isArray(r1.body) && r1.body.length) ? r1.body
+             : (r2.ok && Array.isArray(r2.body) && r2.body.length) ? r2.body
+             : null;
+
+  if (!rows) {
+    if (!r1.ok && r1.status === 403) {
+      html += `<div class="err-box">❌ HTTP 403 — RLS is blocking access.<br><br>
+        Run this in Supabase SQL editor:<br><br>
+        <code style="display:block;background:#0f172a;padding:10px;border-radius:6px;margin-top:8px;line-height:1.8;">
+CREATE POLICY "Parents read children assessments"<br>
+ON assessments FOR SELECT<br>
+USING (<br>
+&nbsp;&nbsp;student_id IN (<br>
+&nbsp;&nbsp;&nbsp;&nbsp;SELECT id FROM public.users<br>
+&nbsp;&nbsp;&nbsp;&nbsp;WHERE parent_id = auth.uid()<br>
+&nbsp;&nbsp;&nbsp;&nbsp;AND user_type = 'student'<br>
+&nbsp;&nbsp;)<br>
+);</code></div>`;
+    } else if (!r1.ok && r1.status === 401) {
+      html += `<div class="err-box">❌ HTTP 401 — Not authenticated. Login again.</div>`;
+    } else if (r1.ok && Array.isArray(r1.body) && r1.body.length === 0) {
+      html += `<div class="err-box">⚠️ HTTP 200 but 0 rows returned.<br>The student UUID may not match any assessment records.<br><br>
+        Probe result: ${r3.ok ? JSON.stringify(r3.body) : 'blocked'}
+      </div>`;
+    } else {
+      html += `<div class="err-box">Unknown error: ${JSON.stringify(r1.body)}</div>`;
+    }
+    el.innerHTML = html;
+    raw.innerHTML = `<div class="json-box">${JSON.stringify({ q1: r1, q2: r2, q3: r3 }, null, 2)}</div>`;
+    return;
+  }
+
+  // ── Group by session (assessed_at rounded to minute) ──────────────────
+  const sessionMap = new Map();
+  rows.forEach(r => {
+    const ts  = r.assessed_at || 'unknown';
+    const key = ts.substring(0, 16);
+    if (!sessionMap.has(key)) sessionMap.set(key, { ts, rows: [] });
+    sessionMap.get(key).rows.push(r);
+  });
+
+  const sessions = [...sessionMap.values()]
+    .sort((a, b) => (a.ts > b.ts ? -1 : 1));
+
+  html += `<p class="info-box" style="margin-bottom:12px;">
+    ✅ <strong>${rows.length}</strong> raw rows → <strong>${sessions.length}</strong> session(s) grouped by timestamp
+  </p>`;
+
+  // ── Sessions table ─────────────────────────────────────────────
+  html += `<div class="tbl-wrap"><table>
+    <thead><tr><th>#</th><th>Date</th><th>Domains</th><th>Avg Score</th><th>Skills</th></tr></thead><tbody>`;
+
+  sessions.forEach((sess, i) => {
+    const dateStr = sess.ts.substring(0,10);
+    const scoreToDisplay = s => Math.round((Math.min(Math.max(s||0),4)/4)*100);
+    const scores  = sess.rows.map(r => r.score || 0).filter(s => s > 0);
+    const avg     = scores.length ? Math.round(scoreToDisplay(scores.reduce((a,b)=>a+b,0)/scores.length)) : 0;
+    const lvlMap  = { 1:'Emerging', 2:'Developing', 3:'Proficient', 4:'Advanced' };
+    const skills  = sess.rows.map(r => `<div style="margin:2px 0;">
+      <span style="color:#94a3b8;font-size:11px;">${r.skill_label || r.skill_key || '?'}</span>
+      <span class="pill ${r.score>=3?'pill-green':r.score===2?'pill-yellow':'pill-red'}" style="margin-left:4px;">${lvlMap[r.score]||r.score||'—'}</span>
+      <div class="score-bar" style="width:100px;display:inline-block;vertical-align:middle;margin-left:6px;">
+        <div class="score-fill" style="width:${scoreToDisplay(r.score)}%;"></div>
+      </div>
+    </div>`).join('');
+
+    html += `<tr>
+      <td><span class="pill pill-blue">${i+1}</span></td>
+      <td><span class="mono">${dateStr}</span><br><span style="font-size:10px;color:#475569;">${sess.ts.substring(11,16)}</span></td>
+      <td>${sess.rows.length} domain(s)</td>
+      <td>
+        <strong style="font-size:18px;">${avg}%</strong>
+        <div class="score-bar" style="margin-top:4px;"><div class="score-fill" style="width:${avg}%;"></div></div>
+      </td>
+      <td>${skills}</td>
+    </tr>`;
+  });
+
+  html += '</tbody></table></div>';
+  el.innerHTML = html;
+
+  // ── Raw JSON ───────────────────────────────────────────────────
+  raw.innerHTML = `
+    <p class="info-box" style="margin-bottom:10px;">Raw DB rows (${rows.length} total)</p>
+    <div class="json-box">${JSON.stringify(rows, null, 2)}</div>`;
+}
+
+function loadAssessmentsAnon() { loadAssessments(true); }
+</script>
+<script src="https://www.genspark.ai/sandbox_inspect.js"></script></body>
+</html>
