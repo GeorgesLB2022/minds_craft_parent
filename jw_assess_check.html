@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>John Wayne — Assessment Row Inspector</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #F8F7FF;
+      color: #1E1B4B;
+      min-height: 100vh;
+      padding: 24px 16px 80px;
+    }
+
+    .container { max-width: 860px; margin: 0 auto; }
+
+    h1 { font-size: 22px; font-weight: 800; color: #1E1B4B; margin-bottom: 4px; }
+    .subtitle { font-size: 13px; color: #64748B; margin-bottom: 28px; }
+
+    /* ── Cards ── */
+    .card {
+      background: white;
+      border: 1px solid #E8E4F8;
+      border-radius: 14px;
+      padding: 20px 22px;
+      margin-bottom: 18px;
+      box-shadow: 0 2px 8px rgba(108,58,232,0.06);
+    }
+    .card-title {
+      font-size: 12px; font-weight: 700; color: #94A3B8;
+      text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 16px;
+    }
+
+    /* ── Form elements ── */
+    label { display: block; font-size: 12px; font-weight: 600; color: #64748B; margin-bottom: 5px; }
+    input {
+      width: 100%; padding: 10px 13px;
+      background: #F8F7FF; border: 1.5px solid #E8E4F8;
+      border-radius: 9px; color: #1E1B4B; font-size: 13px;
+      margin-bottom: 13px; font-family: monospace;
+      transition: border-color 0.15s;
+    }
+    input:focus { outline: none; border-color: #6C3AE8; }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 10px 20px; border-radius: 9px; font-size: 13px;
+      font-weight: 700; cursor: pointer; border: none;
+      transition: all 0.15s; white-space: nowrap;
+    }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-primary  { background: #6C3AE8; color: white; }
+    .btn-primary:hover:not(:disabled) { background: #5B21B6; }
+    .btn-blue     { background: #3B82F6; color: white; }
+    .btn-blue:hover:not(:disabled) { background: #1D4ED8; }
+    .btn-green    { background: #10B981; color: white; }
+    .btn-green:hover:not(:disabled) { background: #065F46; }
+    .btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+
+    /* ── Status pills ── */
+    .pill {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 10px; border-radius: 99px;
+      font-size: 11px; font-weight: 700;
+    }
+    .pill-ok     { background: #F0FDF4; color: #065F46; border: 1px solid #86EFAC; }
+    .pill-err    { background: #FEF2F2; color: #991B1B; border: 1px solid #FCA5A5; }
+    .pill-warn   { background: #FFFBEB; color: #92400E; border: 1px solid #FCD34D; }
+    .pill-info   { background: #EFF6FF; color: #1D4ED8; border: 1px solid #93C5FD; }
+    .pill-purple { background: #F5F3FF; color: #5B21B6; border: 1px solid #C4B5FD; }
+
+    /* ── Result areas ── */
+    .result-box {
+      min-height: 36px;
+      font-size: 13px;
+      color: #475569;
+    }
+    .info-msg {
+      background: #EFF6FF; border: 1px solid #BFDBFE;
+      border-radius: 9px; padding: 12px 14px;
+      color: #1D4ED8; font-size: 13px; line-height: 1.6;
+    }
+    .err-msg {
+      background: #FEF2F2; border: 1px solid #FCA5A5;
+      border-radius: 9px; padding: 12px 14px;
+      color: #991B1B; font-size: 13px; font-family: monospace;
+      white-space: pre-wrap; line-height: 1.6;
+    }
+    .success-msg {
+      background: #F0FDF4; border: 1px solid #86EFAC;
+      border-radius: 9px; padding: 12px 14px;
+      color: #065F46; font-size: 13px; line-height: 1.6;
+    }
+
+    /* ── Summary numbers ── */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .stat-box {
+      background: #F8F7FF; border: 1.5px solid #E8E4F8;
+      border-radius: 12px; padding: 14px 12px; text-align: center;
+    }
+    .stat-num  { font-size: 28px; font-weight: 900; color: #6C3AE8; line-height: 1; }
+    .stat-label{ font-size: 11px; font-weight: 600; color: #94A3B8;
+                 text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+
+    /* ── Raw rows table ── */
+    .tbl-wrap { overflow-x: auto; margin-top: 14px; border-radius: 10px; border: 1px solid #E8E4F8; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 620px; }
+    thead { background: #F8F7FF; }
+    th {
+      padding: 9px 12px; text-align: left; font-size: 11px;
+      font-weight: 700; color: #64748B; text-transform: uppercase;
+      letter-spacing: 0.4px; border-bottom: 2px solid #E8E4F8;
+      white-space: nowrap;
+    }
+    td {
+      padding: 9px 12px; border-bottom: 1px solid #F1F0FA;
+      color: #374151; vertical-align: top; max-width: 260px;
+      word-break: break-word;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #FAFAFF; }
+    .mono { font-family: monospace; font-size: 11px; color: #6C3AE8; }
+
+    /* ── Session group headers ── */
+    .session-header {
+      background: #F5F3FF; padding: 10px 16px;
+      border-radius: 10px; margin-bottom: 8px; margin-top: 14px;
+      display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+    }
+    .session-header:first-child { margin-top: 0; }
+    .session-num  { font-size: 13px; font-weight: 800; color: #5B21B6; }
+    .session-ts   { font-size: 12px; font-weight: 600; color: #6C3AE8; font-family: monospace; }
+    .session-cat  { font-size: 11px; color: #94A3B8; }
+
+    /* ── Level colors inline ── */
+    .lvl-Emerging   { background:#FFFBEB; color:#B45309; border:1px solid #FCD34D; }
+    .lvl-Developing { background:#EFF6FF; color:#1D4ED8; border:1px solid #93C5FD; }
+    .lvl-Proficient { background:#F0FDF4; color:#065F46; border:1px solid #86EFAC; }
+    .lvl-Advanced   { background:#F5F3FF; color:#5B21B6; border:1px solid #C4B5FD; }
+
+    /* ── Step bar ── */
+    .step-bar { display:flex; gap:3px; margin-top:4px; }
+    .step-seg { height:6px; border-radius:99px; flex:1; background:#E2E8F0; }
+    .step-seg.on-Emerging   { background:#F59E0B; }
+    .step-seg.on-Developing { background:#3B82F6; }
+    .step-seg.on-Proficient { background:#22C55E; }
+    .step-seg.on-Advanced   { background:#7C3AED; }
+
+    /* ── JSON viewer ── */
+    .json-box {
+      background: #020617; border-radius: 10px; padding: 16px;
+      font-family: monospace; font-size: 11px; color: #4ADE80;
+      white-space: pre-wrap; max-height: 360px; overflow-y: auto;
+      margin-top: 12px; line-height: 1.7; border: 1px solid #1E293B;
+    }
+    details > summary {
+      cursor: pointer; font-size: 12px; font-weight: 600;
+      color: #6C3AE8; margin-top: 12px; padding: 4px 0;
+    }
+    details > summary:hover { color: #5B21B6; }
+
+    /* ── Spin animation ── */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spin { display: inline-block; animation: spin 0.8s linear infinite; }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <h1>🔍 John Wayne — Assessment Inspector</h1>
+  <p class="subtitle">Direct Supabase query · counts raw rows + groups them into sessions</p>
+
+  <!-- STEP 1: Login -->
+  <div class="card">
+    <div class="card-title">Step 1 — Parent Login</div>
+    <label>Email</label>
+    <input type="email" id="inp-email" placeholder="parent@email.com" autocomplete="email">
+    <label>Password</label>
+    <input type="password" id="inp-pass" placeholder="phone number / password" autocomplete="current-password">
+    <div class="btn-row">
+      <button class="btn btn-primary" id="btn-login" onclick="doLogin()">🔑 Login</button>
+      <span id="login-status"></span>
+    </div>
+    <div class="result-box" id="res-login" style="margin-top:12px;"></div>
+  </div>
+
+  <!-- STEP 2: Find John Wayne -->
+  <div class="card">
+    <div class="card-title">Step 2 — Find John Wayne</div>
+    <p style="font-size:13px;color:#64748B;margin-bottom:14px;">
+      Auto-searches students linked to your parent account for "john wayne" (case-insensitive).
+      You can also paste a UUID manually below.
+    </p>
+    <label>Student UUID (auto-filled or paste manually)</label>
+    <input type="text" id="inp-student" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" class="mono">
+    <div class="btn-row">
+      <button class="btn btn-blue" id="btn-find" onclick="findJohnWayne()" disabled>🔎 Auto-Find John Wayne</button>
+    </div>
+    <div class="result-box" id="res-students" style="margin-top:12px;"></div>
+  </div>
+
+  <!-- STEP 3: Inspect assessments -->
+  <div class="card">
+    <div class="card-title">Step 3 — Inspect Assessment Rows</div>
+    <div class="btn-row">
+      <button class="btn btn-green" id="btn-inspect" onclick="inspectAssessments()" disabled>📊 Run Inspection</button>
+    </div>
+    <div class="result-box" id="res-inspect" style="margin-top:16px;"></div>
+  </div>
+
+</div>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────────
+const SB_URL  = 'https://xiatsareoruybucwkpkc.supabase.co';
+const SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhpYXRzYXJlb3J1eWJ1Y3drcGtjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzNjgzOTcsImV4cCI6MjA4OTk0NDM5N30.l14cNOUt1PKqL0hl5VL5wpt2JRB9rG_gQlJeYeJNIqU';
+
+let _token = null;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function hdrs(token) {
+  return {
+    'Content-Type':  'application/json',
+    'apikey':        SB_ANON,
+    'Authorization': 'Bearer ' + (token || SB_ANON),
+    'Accept':        'application/json'
+  };
+}
+
+async function sbGet(path, token) {
+  const r    = await fetch(SB_URL + '/rest/v1/' + path, { headers: hdrs(token), cache: 'no-store' });
+  const body = await r.json().catch(() => null);
+  return { ok: r.ok, status: r.status, body };
+}
+
+function pill(label, cls) {
+  return '<span class="pill ' + cls + '">' + label + '</span>';
+}
+
+function levelLabel(score) {
+  if (score === 4) return 'Advanced';
+  if (score === 3) return 'Proficient';
+  if (score === 2) return 'Developing';
+  if (score === 1) return 'Emerging';
+  return '—';
+}
+
+function stepBar(score) {
+  const lvl = levelLabel(score);
+  let html = '<div class="step-bar">';
+  for (let i = 1; i <= 4; i++) {
+    html += '<div class="step-seg' + (i <= score ? ' on-' + lvl : '') + '"></div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+// ── Step 1: Login ─────────────────────────────────────────────────────────────
+async function doLogin() {
+  const email = document.getElementById('inp-email').value.trim();
+  const pass  = document.getElementById('inp-pass').value.trim();
+  const el    = document.getElementById('res-login');
+  const st    = document.getElementById('login-status');
+
+  if (!email || !pass) {
+    el.innerHTML = '<div class="err-msg">⚠️ Please enter email and password.</div>';
+    return;
+  }
+
+  st.innerHTML = '<span class="spin">⏳</span> Logging in…';
+  el.innerHTML = '';
+  document.getElementById('btn-login').disabled = true;
+
+  const r    = await fetch(SB_URL + '/auth/v1/token?grant_type=password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'apikey': SB_ANON },
+    body: JSON.stringify({ email, password: pass })
+  });
+  const data = await r.json().catch(() => ({}));
+
+  document.getElementById('btn-login').disabled = false;
+
+  if (!r.ok || !data.access_token) {
+    st.innerHTML = pill('Login failed', 'pill-err');
+    el.innerHTML = '<div class="err-msg">Error: ' + (data.error_description || data.message || JSON.stringify(data)) + '</div>';
+    return;
+  }
+
+  _token = data.access_token;
+  st.innerHTML = pill('✅ Logged in', 'pill-ok');
+  el.innerHTML = '<div class="success-msg">'
+    + '<strong>' + (data.user?.email || email) + '</strong> authenticated.<br>'
+    + '<span style="font-size:11px;color:#065F46;font-family:monospace;">User ID: ' + (data.user?.id || '—') + '</span>'
+    + '</div>';
+
+  document.getElementById('btn-find').disabled    = false;
+  document.getElementById('btn-inspect').disabled = false;
+}
+
+// ── Step 2: Find John Wayne ───────────────────────────────────────────────────
+async function findJohnWayne() {
+  const el = document.getElementById('res-students');
+  if (!_token) { el.innerHTML = '<div class="err-msg">Login first.</div>'; return; }
+
+  el.innerHTML = '<span class="spin">⏳</span> Searching students…';
+  document.getElementById('btn-find').disabled = true;
+
+  // Try multiple strategies to find students
+  const strategies = [
+    `users?user_type=eq.student&select=id,full_name,avatar_color,status&full_name=ilike.*john*wayne*`,
+    `users?user_type=eq.student&select=id,full_name,avatar_color,status&full_name=ilike.*john*`,
+    `users?user_type=eq.student&select=id,full_name,avatar_color,status&limit=50`
+  ];
+
+  let allStudents = [];
+  let found       = null;
+
+  for (const path of strategies) {
+    const { ok, body } = await sbGet(path, _token);
+    if (ok && Array.isArray(body) && body.length) {
+      allStudents = body;
+      // Look for John Wayne
+      found = body.find(s =>
+        (s.full_name || '').toLowerCase().replace(/\s+/g, '') === 'johnwayne' ||
+        (s.full_name || '').toLowerCase().includes('john') && (s.full_name || '').toLowerCase().includes('wayne')
+      );
+      if (found) break;
+    }
+  }
+
+  document.getElementById('btn-find').disabled = false;
+
+  if (!found && allStudents.length) {
+    // Show all students so user can pick manually
+    let rows = allStudents.map(s =>
+      '<tr><td><strong>' + (s.full_name || '—') + '</strong></td>'
+      + '<td><span class="mono">' + s.id + '</span></td>'
+      + '<td>' + pill(s.status || '—', s.status === 'active' ? 'pill-ok' : 'pill-warn') + '</td>'
+      + '<td><button class="btn btn-blue" style="padding:5px 12px;font-size:11px;" '
+      + 'onclick="selectStudent(\'' + s.id + '\',\'' + (s.full_name||'').replace(/'/g,"\\'") + '\')">Select</button></td>'
+      + '</tr>'
+    ).join('');
+
+    el.innerHTML = '<div class="err-msg" style="margin-bottom:12px;">⚠️ "John Wayne" not found automatically.<br>Pick the correct student below:</div>'
+      + '<div class="tbl-wrap"><table>'
+      + '<thead><tr><th>Name</th><th>UUID</th><th>Status</th><th></th></tr></thead>'
+      + '<tbody>' + rows + '</tbody></table></div>';
+    return;
+  }
+
+  if (!found) {
+    el.innerHTML = '<div class="err-msg">No students found. Check RLS policies or try a different account.</div>';
+    return;
+  }
+
+  document.getElementById('inp-student').value = found.id;
+  el.innerHTML = '<div class="success-msg">'
+    + '✅ Found: <strong>' + found.full_name + '</strong><br>'
+    + '<span style="font-family:monospace;font-size:11px;color:#065F46;">' + found.id + '</span>'
+    + '</div>';
+}
+
+function selectStudent(id, name) {
+  document.getElementById('inp-student').value = id;
+  document.getElementById('res-students').innerHTML = '<div class="success-msg">'
+    + '✅ Selected: <strong>' + name + '</strong><br>'
+    + '<span style="font-family:monospace;font-size:11px;">' + id + '</span>'
+    + '</div>';
+}
+
+// ── Step 3: Inspect Assessments ───────────────────────────────────────────────
+async function inspectAssessments() {
+  const kidId = document.getElementById('inp-student').value.trim();
+  const el    = document.getElementById('res-inspect');
+
+  if (!kidId) {
+    el.innerHTML = '<div class="err-msg">⚠️ Enter or auto-find a student UUID first (Step 2).</div>';
+    return;
+  }
+
+  el.innerHTML = '<span class="spin">⏳</span> Fetching all assessment rows from DB…';
+  document.getElementById('btn-inspect').disabled = true;
+
+  const path = 'assessments?student_id=eq.' + kidId
+    + '&select=id,student_id,skill_key,skill_label,category,score,assessed_at,notes'
+    + '&order=assessed_at.desc.nullslast&limit=200';
+
+  const { ok, status, body } = await sbGet(path, _token);
+  document.getElementById('btn-inspect').disabled = false;
+
+  if (!ok) {
+    el.innerHTML = '<div class="err-msg">'
+      + 'HTTP ' + status + ' — Query failed.\n\n'
+      + JSON.stringify(body, null, 2)
+      + '</div>';
+    return;
+  }
+
+  const rows = Array.isArray(body) ? body : [];
+
+  if (!rows.length) {
+    el.innerHTML = '<div class="err-msg">'
+      + '⚠️ HTTP ' + status + ' — 0 rows returned for this student UUID.\n\n'
+      + 'Either:\n• The UUID is wrong\n• RLS is blocking parent access to assessments\n• No assessments have been entered yet'
+      + '</div>';
+    return;
+  }
+
+  // ── Analytics ────────────────────────────────────────────────────────────
+
+  // 1. Group by full second-precision timestamp
+  const byTs = new Map();
+  rows.forEach(r => {
+    const ts  = r.assessed_at || 'unknown';
+    const key = ts.substring(0, 19); // full second
+    if (!byTs.has(key)) byTs.set(key, []);
+    byTs.get(key).push(r);
+  });
+
+  // 2. Group by minute-precision timestamp (old logic — shows the bug)
+  const byMin = new Map();
+  rows.forEach(r => {
+    const ts  = r.assessed_at || 'unknown';
+    const key = ts.substring(0, 16); // minute
+    if (!byMin.has(key)) byMin.set(key, []);
+    byMin.get(key).push(r);
+  });
+
+  // 3. Group by category field
+  const byCat = new Map();
+  rows.forEach(r => {
+    const key = r.category || '(no category)';
+    if (!byCat.has(key)) byCat.set(key, []);
+    byCat.get(key).push(r);
+  });
+
+  // 4. Extract unique assessed_at values
+  const uniqueTs = [...new Set(rows.map(r => r.assessed_at || 'unknown'))].sort().reverse();
+
+  // 5. Extract notes course_name per row
+  function getCourseName(r) {
+    try {
+      const n = Array.isArray(r.notes) ? r.notes : JSON.parse(r.notes || '[]');
+      return (n[0] && n[0].course_name) ? n[0].course_name : '—';
+    } catch { return '—'; }
+  }
+
+  // ── Summary stats ─────────────────────────────────────────────────────────
+  const totalRows     = rows.length;
+  const sessionsByTs  = byTs.size;
+  const sessionsByMin = byMin.size;
+  const sessionsByCat = byCat.size;
+
+  let html = '';
+
+  // ── BIG STAT BOXES ────────────────────────────────────────────────────────
+  html += '<div class="stat-grid">';
+  html += '<div class="stat-box"><div class="stat-num">' + totalRows + '</div><div class="stat-label">Total Rows</div></div>';
+  html += '<div class="stat-box"><div class="stat-num" style="color:' + (sessionsByTs === sessionsByMin ? '#10B981' : '#EF4444') + ';">' + sessionsByTs + '</div><div class="stat-label">Sessions (by second)</div></div>';
+  html += '<div class="stat-box"><div class="stat-num" style="color:#F59E0B;">' + sessionsByMin + '</div><div class="stat-label">Sessions (by minute)</div></div>';
+  html += '<div class="stat-box"><div class="stat-num" style="color:#3B82F6;">' + sessionsByCat + '</div><div class="stat-label">Unique Categories</div></div>';
+  html += '</div>';
+
+  // ── Grouping diagnosis ────────────────────────────────────────────────────
+  html += '<div style="margin-bottom:16px;">';
+
+  const domainsPerSession = totalRows / sessionsByTs;
+  const expectedDomains = 5;
+
+  if (sessionsByTs === sessionsByMin) {
+    html += '<div class="success-msg" style="margin-bottom:8px;">'
+      + '✅ <strong>Timestamps are distinct.</strong> Each session has a unique <code>assessed_at</code>. '
+      + 'The ' + sessionsByTs + ' sessions will be shown separately in the app.'
+      + '</div>';
+  } else {
+    html += '<div class="err-msg" style="margin-bottom:8px;">'
+      + '❌ <strong>Timestamp collision detected!</strong><br>'
+      + sessionsByTs + ' unique seconds BUT ' + sessionsByMin + ' unique minutes — some sessions share the same minute.<br>'
+      + 'OLD grouping (by minute) would show <strong>' + sessionsByMin + '</strong> card(s) instead of ' + sessionsByTs + '.'
+      + '</div>';
+  }
+
+  if (sessionsByTs === 1 && totalRows > expectedDomains) {
+    html += '<div class="err-msg" style="margin-bottom:8px;">'
+      + '⚠️ <strong>All ' + totalRows + ' rows share the same timestamp.</strong><br>'
+      + 'This is why only 1 assessment shows in the list.<br>'
+      + 'Fix: either give each session a different <code>assessed_at</code>, OR ensure <code>category</code> is distinct per session (fallback grouping will use it).<br>'
+      + 'Distinct categories found: <strong>' + sessionsByCat + '</strong> → '
+      + (sessionsByCat > 1 ? '✅ Fallback grouping WILL work' : '❌ Fallback also fails — all same category')
+      + '</div>';
+  }
+
+  if (domainsPerSession !== Math.floor(domainsPerSession)) {
+    html += '<div class="' + 'pill pill-warn' + '" style="margin-bottom:8px;display:block;padding:8px 12px;border-radius:9px;">'
+      + '⚠️ Uneven rows per session (' + totalRows + ' rows / ' + sessionsByTs + ' sessions = '
+      + domainsPerSession.toFixed(1) + ' domains each). Expected ' + expectedDomains + ' per session.'
+      + '</div>';
+  }
+
+  html += '</div>';
+
+  // ── Unique timestamps table ───────────────────────────────────────────────
+  html += '<div style="font-size:12px;font-weight:700;color:#1E1B4B;margin-bottom:8px;">Unique <code>assessed_at</code> values (' + uniqueTs.length + ')</div>';
+  html += '<div class="tbl-wrap"><table>'
+    + '<thead><tr><th>#</th><th>assessed_at (raw)</th><th>Date</th><th>Time</th><th>Rows</th><th>Domains</th></tr></thead><tbody>';
+
+  uniqueTs.forEach((ts, i) => {
+    const tsRows    = rows.filter(r => r.assessed_at === ts);
+    const dateStr   = ts.substring(0, 10);
+    const timeStr   = ts.includes('T') ? ts.split('T')[1].substring(0, 8) : '—';
+    const domNames  = tsRows.map(r => (r.skill_label || r.skill_key || '?')).join(', ');
+    html += '<tr>'
+      + '<td style="font-weight:700;color:#6C3AE8;">' + (i + 1) + '</td>'
+      + '<td><span class="mono">' + ts + '</span></td>'
+      + '<td>' + dateStr + '</td>'
+      + '<td><span class="mono">' + timeStr + '</span></td>'
+      + '<td><span class="pill ' + (tsRows.length === 5 ? 'pill-ok' : tsRows.length < 5 ? 'pill-warn' : 'pill-err') + '">' + tsRows.length + '</span></td>'
+      + '<td style="font-size:11px;color:#64748B;">' + domNames + '</td>'
+      + '</tr>';
+  });
+
+  html += '</tbody></table></div>';
+
+  // ── Per-session breakdown ─────────────────────────────────────────────────
+  html += '<div style="font-size:12px;font-weight:700;color:#1E1B4B;margin:20px 0 8px;">Session-by-Session Breakdown</div>';
+
+  const sortedTs = [...byTs.entries()].sort((a, b) => (a[0] > b[0] ? -1 : 1));
+
+  sortedTs.forEach(([ts, tsRows], idx) => {
+    const dateStr    = ts.substring(0, 10);
+    const timeStr    = ts.includes('T') ? ts.split('T')[1].substring(0, 5) : '—';
+    const courseName = getCourseName(tsRows[0]);
+    const catVal     = tsRows[0]?.category || '(no category)';
+    const scores     = tsRows.map(r => r.score || 0).filter(s => s > 0);
+    const avgRaw     = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+    const avgDisp    = Math.round((Math.min(Math.max(avgRaw, 0), 4) / 4) * 100);
+    const lvlMap     = { 1: 'Emerging', 2: 'Developing', 3: 'Proficient', 4: 'Advanced' };
+    const ovLvl      = avgDisp >= 75 ? 'Advanced' : avgDisp >= 50 ? 'Proficient' : avgDisp >= 25 ? 'Developing' : 'Emerging';
+
+    html += '<div class="session-header">'
+      + '<div>'
+      + '<span class="session-num">Session ' + (idx + 1) + '</span>'
+      + ' &nbsp;<span class="session-ts">' + ts.substring(0, 19) + '</span>'
+      + '</div>'
+      + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
+      + '<span class="pill pill-info">' + dateStr + ' · ' + timeStr + '</span>'
+      + (courseName !== '—' ? '<span class="pill pill-purple">📚 ' + courseName + '</span>' : '')
+      + '<span class="pill pill-info">cat: ' + catVal + '</span>'
+      + '<span class="pill lvl-' + ovLvl + '">' + ovLvl + ' · ' + avgDisp + '/100</span>'
+      + '<span class="pill ' + (tsRows.length === 5 ? 'pill-ok' : 'pill-warn') + '">' + tsRows.length + ' rows</span>'
+      + '</div>'
+      + '</div>';
+
+    // Domain rows for this session
+    html += '<div class="tbl-wrap" style="margin-bottom:4px;"><table>'
+      + '<thead><tr><th>Row ID</th><th>Skill Key</th><th>Skill Label</th><th>Category</th><th>Score</th><th>Level</th><th>Progress</th><th>Course (notes)</th></tr></thead><tbody>';
+
+    tsRows.forEach(r => {
+      const lvl      = lvlMap[r.score] || '—';
+      const cnotes   = getCourseName(r);
+      html += '<tr>'
+        + '<td><span class="mono" style="font-size:10px;">' + (r.id || '—').substring(0, 8) + '…</span></td>'
+        + '<td><span class="mono">' + (r.skill_key || '—') + '</span></td>'
+        + '<td style="font-weight:600;">' + (r.skill_label || '—') + '</td>'
+        + '<td>' + (r.category || '—') + '</td>'
+        + '<td style="font-weight:800;color:#6C3AE8;">' + (r.score || '—') + '</td>'
+        + '<td><span class="pill lvl-' + lvl + '">' + lvl + '</span></td>'
+        + '<td>' + stepBar(r.score) + '</td>'
+        + '<td style="font-size:11px;color:#64748B;">' + cnotes + '</td>'
+        + '</tr>';
+    });
+
+    html += '</tbody></table></div>';
+  });
+
+  // ── Categories summary ────────────────────────────────────────────────────
+  html += '<div style="font-size:12px;font-weight:700;color:#1E1B4B;margin:20px 0 8px;">Categories in DB (' + byCat.size + ' distinct)</div>';
+  html += '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">';
+  byCat.forEach((catRows, cat) => {
+    html += '<span class="pill pill-purple">' + cat + ' (' + catRows.length + ' rows)</span>';
+  });
+  html += '</div>';
+
+  // ── What the app will show ────────────────────────────────────────────────
+  html += '<div style="background:#F5F3FF;border:1.5px solid #C4B5FD;border-radius:12px;padding:16px 18px;margin-bottom:16px;">';
+  html += '<div style="font-size:13px;font-weight:700;color:#5B21B6;margin-bottom:10px;">🖥️ What the app will show</div>';
+
+  // Simulate the grouping logic from supabase.js
+  const simByTs   = byTs.size;
+  let   simResult = simByTs;
+  let   simNote   = 'Grouped by second-precision timestamp → <strong>' + simByTs + ' session card(s)</strong>';
+
+  if (simByTs === 1 && totalRows > 5) {
+    // Fallback: group by category
+    const simByCat = byCat.size;
+    simResult = simByCat > 1 ? simByCat : 1;
+    simNote   = simByCat > 1
+      ? '⚠️ All rows have same timestamp → <strong>fallback to category grouping → ' + simByCat + ' session card(s)</strong>'
+      : '❌ Same timestamp + same category → only <strong>1 session card</strong> will show';
+  }
+
+  html += '<div style="font-size:13px;color:#374151;">' + simNote + '</div>';
+  html += '<div style="font-size:12px;color:#64748B;margin-top:6px;">Expected: <strong>' + Math.round(totalRows / 5) + '</strong> sessions if each has 5 domain rows</div>';
+  html += '</div>';
+
+  // ── Raw JSON dump ─────────────────────────────────────────────────────────
+  html += '<details>'
+    + '<summary>🗃️ Show raw JSON response (' + rows.length + ' rows)</summary>'
+    + '<div class="json-box">' + JSON.stringify(rows, null, 2) + '</div>'
+    + '</details>';
+
+  el.innerHTML = html;
+}
+</script>
+<script src="https://www.genspark.ai/sandbox_inspect.js"></script></body>
+</html>
