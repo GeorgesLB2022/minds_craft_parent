@@ -1365,34 +1365,123 @@ function _renderAttRows(attRows, title) {
 }
 
 function renderAssessmentsTab(assessments, kid) {
-  if (!assessments.length) {
-    return `<div class="empty-state"><div class="empty-state__icon"><svg width="32" height="32" fill="none" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4" stroke="currentColor" stroke-width="2"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" stroke="currentColor" stroke-width="2"/></svg></div><div class="empty-state__title">No Assessments Yet</div><div class="empty-state__body">Assessments will appear here once your trainer completes an evaluation.</div></div>`;
+  if (!assessments || !assessments.length) {
+    return '<div class="empty-state">'
+      + '<div class="empty-state__icon"><svg width="32" height="32" fill="none" viewBox="0 0 24 24">'
+      + '<path d="M9 11l3 3L22 4" stroke="currentColor" stroke-width="2"/>'
+      + '<path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" stroke="currentColor" stroke-width="2"/>'
+      + '</svg></div>'
+      + '<div class="empty-state__title">No Assessments Yet</div>'
+      + '<div class="empty-state__body">Assessments will appear here once your trainer completes an evaluation.</div>'
+      + '</div>';
   }
-  return assessments.map(a => `
-    <div class="assessment-card" onclick="Router.navigate('assessment-detail',{kidId:'${kid.id}',assessId:'${a.id}'})">
-      <div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-3);">
-        <div class="assessment-score assessment-score--${UI.scoreType(a.score)}">${a.score}</div>
-        <div style="flex:1;">
-          <div style="font-weight:600;color:var(--color-text);font-size:15px;">${a.title}</div>
-          <div style="font-size:12px;color:var(--color-text-secondary);">${UI.formatDate(a.date)} · ${a.trainer}</div>
-          <div style="margin-top:4px;display:flex;gap:6px;">${UI.badge(a.grade, 'primary')}${UI.badge(a.category, 'neutral')}</div>
-        </div>
-        <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6" stroke="var(--color-text-muted)" stroke-width="2" stroke-linecap="round"/></svg>
-      </div>
-      <div style="font-size:13px;color:var(--color-text-secondary);font-style:italic;margin-bottom:var(--space-3);">"${a.remarks}"</div>
-      <div style="display:flex;flex-direction:column;gap:var(--space-2);">
-        ${a.skills.map(s => `
-          <div>
-            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;">
-              <span style="color:var(--color-text-secondary);">${s.name}</span>
-              <span style="font-weight:600;color:var(--color-text);">${s.score}</span>
-            </div>
-            <div class="progress-track" style="height:5px;">
-              <div class="progress-fill" style="width:${s.score}%;"></div>
-            </div>
-          </div>`).join('')}
-      </div>
-    </div>`).join('');
+
+  // ── Level palette — light theme ───────────────────────────────────────────
+  // Strong readable text on white/light bg
+  var LVL_TEXT   = { Emerging:'#B45309', Developing:'#1D4ED8', Proficient:'#065F46', Advanced:'#5B21B6' };
+  // Pastel card tint
+  var LVL_TINT   = { Emerging:'#FFFBEB', Developing:'#EFF6FF', Proficient:'#F0FDF4', Advanced:'#F5F3FF' };
+  // Visible border
+  var LVL_BORDER = { Emerging:'#FCD34D', Developing:'#93C5FD', Proficient:'#86EFAC', Advanced:'#C4B5FD' };
+  // Stripe / bar fill
+  var LVL_BAR    = { Emerging:'#F59E0B', Developing:'#3B82F6', Proficient:'#22C55E', Advanced:'#7C3AED' };
+  var LVL_EMOJI  = { Emerging:'🌱', Developing:'📈', Proficient:'⭐', Advanced:'🏆' };
+  var LEVELS     = ['Emerging', 'Developing', 'Proficient', 'Advanced'];
+
+  // ── Header: count ─────────────────────────────────────────────────────────
+  var header = '<div style="font-size:12px;font-weight:600;color:#64748B;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:12px;">'
+    + assessments.length + ' Assessment' + (assessments.length > 1 ? 's' : '') + ' — newest first'
+    + '</div>';
+
+  // ── Cards ─────────────────────────────────────────────────────────────────
+  var cards = assessments.map(function(a) {
+    // Use overallLevel computed in supabase.js from skills[].level majority vote
+    // (NOT from numeric score which is always based on DB score 1-4 and can be wrong)
+    var lvl    = a.overallLevel || 'Emerging';
+    var txt    = LVL_TEXT[lvl];
+    var tint   = LVL_TINT[lvl];
+    var border = LVL_BORDER[lvl];
+    var bar    = LVL_BAR[lvl];
+    var emoji  = LVL_EMOJI[lvl];
+
+    // Date parts
+    var dateObj = new Date((a.date || '') + 'T00:00:00');
+    var day  = dateObj.getDate();
+    var mon  = dateObj.toLocaleDateString('en-US', { month: 'short' });
+    var yr   = dateObj.getFullYear();
+    var timeDisplay = a.time ? a.time : '';
+
+    // Mini step bar (4 segments, light inactive track)
+    var stepIdx = LEVELS.indexOf(lvl);
+    var miniBar = '<div style="display:flex;gap:3px;margin:6px 0 4px;">';
+    for (var i = 0; i < 4; i++) {
+      miniBar += '<div style="flex:1;height:5px;border-radius:99px;background:'
+        + (i <= stepIdx ? bar : '#E2E8F0') + ';"></div>';
+    }
+    miniBar += '</div>';
+
+    // Per-skill dots (each dot = color of that domain's level)
+    var dots = (a.skills || []).map(function(s) {
+      var sl = s.level || 'Emerging';
+      var dc = LVL_BAR[sl] || '#94A3B8';
+      return '<span title="' + s.name + ': ' + sl + '" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:' + dc + ';border:1.5px solid white;box-shadow:0 0 0 1px ' + dc + '55;"></span>';
+    }).join('');
+
+    // Level badge (replaces /100 score — score scale is internal only)
+    var scoreLabel = '<span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:700;padding:3px 8px;border-radius:99px;background:' + tint + ';color:' + txt + ';border:1px solid ' + border + ';white-space:nowrap;">'
+      + emoji + ' ' + lvl
+      + '</span>';
+
+    return '<div onclick="Router.navigate(\'assessment-detail\',{kidId:\'' + kid.id + '\',assessId:\'' + a.id + '\'})"'
+      + ' style="background:white;border:1.5px solid ' + border + ';border-left:4px solid ' + bar + ';border-radius:var(--radius-lg);padding:12px 14px 10px;margin-bottom:10px;cursor:pointer;transition:box-shadow 0.15s,transform 0.1s;display:flex;align-items:stretch;gap:12px;box-shadow:0 1px 4px rgba(0,0,0,0.06);"'
+      + ' onmousedown="this.style.transform=\'scale(0.985)\';this.style.boxShadow=\'0 2px 12px rgba(0,0,0,0.1)\';" onmouseup="this.style.transform=\'\';this.style.boxShadow=\'0 1px 4px rgba(0,0,0,0.06)\';" onmouseleave="this.style.transform=\'\';this.style.boxShadow=\'0 1px 4px rgba(0,0,0,0.06)\';">'
+
+      // ── Date column ──
+      + '<div style="flex-shrink:0;width:46px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;background:' + tint + ';border-radius:var(--radius-md);padding:6px 2px;border:1px solid ' + border + ';">'
+      + '<div style="font-size:19px;font-weight:900;color:#1E1B4B;line-height:1;">' + day + '</div>'
+      + '<div style="font-size:10px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:0.5px;">' + mon + '</div>'
+      + '<div style="font-size:9px;color:#94A3B8;margin-top:1px;">' + yr + '</div>'
+      + (timeDisplay ? '<div style="font-size:9px;font-weight:700;color:' + txt + ';margin-top:4px;background:white;padding:1px 4px;border-radius:4px;border:1px solid ' + border + ';">' + timeDisplay + '</div>' : '')
+      + '</div>'
+
+      // ── Main content ──
+      + '<div style="flex:1;min-width:0;">'
+
+      // Title + level badge
+      + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:2px;">'
+      + '<div style="font-size:14px;font-weight:700;color:#1E1B4B;line-height:1.3;">' + a.title + '</div>'
+      + '<div style="flex-shrink:0;text-align:right;">' + scoreLabel + '</div>'
+      + '</div>'
+
+      // Course level name (from notes.level in DB)
+      + (a.levelName
+          ? '<div style="font-size:11px;font-weight:600;color:#6366F1;margin-bottom:4px;">'
+            + '📚 ' + a.levelName
+            + '</div>'
+          : '')
+
+      // Mini step bar (level shown via scoreLabel badge top-right — no duplicate badge here)
+      + miniBar
+
+      // Skill dots
+      + '<div style="display:flex;align-items:center;gap:5px;margin-top:2px;">'
+      + '<span style="font-size:10px;color:#94A3B8;margin-right:1px;">Skills</span>'
+      + dots
+      + '</div>'
+
+      + '</div>'
+
+      // ── Arrow ──
+      + '<div style="display:flex;align-items:center;flex-shrink:0;">'
+      + '<svg width="16" height="16" fill="none" viewBox="0 0 24 24">'
+      + '<path d="M9 18l6-6-6-6" stroke="#CBD5E1" stroke-width="2.5" stroke-linecap="round"/>'
+      + '</svg>'
+      + '</div>'
+
+      + '</div>';
+  }).join('');
+
+  return header + cards;
 }
 
 function renderClassesTab(classes) {
@@ -1480,10 +1569,10 @@ function renderLevelTab(levelInfo, classes, kid) {
         <div class="info-row"><span class="info-row__key">Time</span><span class="info-row__val">${time}</span></div>
         <div class="info-row"><span class="info-row__key">Duration</span><span class="info-row__val">${duration}</span></div>
 
-        <!-- Current Level visual -->
+        <!-- Current Level visual + progress -->
         <div style="margin-top:var(--space-3);padding-top:var(--space-3);border-top:1px solid var(--color-border);">
           <div style="font-size:13px;font-weight:600;color:var(--color-text-secondary);margin-bottom:var(--space-2);">Current Level</div>
-          <div style="display:flex;align-items:center;gap:var(--space-3);">
+          <div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-3);">
             <div style="width:48px;height:48px;border-radius:var(--radius-full);background:var(--color-primary-bg);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
               <span style="font-size:18px;font-weight:800;color:var(--color-primary);">${levelNum}</span>
             </div>
@@ -1492,6 +1581,20 @@ function renderLevelTab(levelInfo, classes, kid) {
               <div style="font-size:12px;color:var(--color-text-secondary);">${courseName}</div>
             </div>
           </div>
+          ${(() => {
+            // cls.levelProgress = 0-100 from enrollments.level_progress (real DB value)
+            const pct = (typeof cls.levelProgress === 'number') ? cls.levelProgress : 0;
+            const pctColor = pct >= 80 ? 'var(--color-success)' : pct >= 40 ? 'var(--color-primary)' : 'var(--color-warning)';
+            return `
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+              <span style="font-size:12px;font-weight:600;color:var(--color-text-secondary);">Level Progress</span>
+              <span style="font-size:13px;font-weight:800;color:${pctColor};">${pct}%</span>
+            </div>
+            <div style="height:8px;background:var(--color-border);border-radius:99px;overflow:hidden;">
+              <div style="height:100%;width:${pct}%;background:${pctColor};border-radius:99px;transition:width 0.4s ease;"></div>
+            </div>
+            ${pct === 0 ? '<div style="font-size:11px;color:var(--color-text-muted);margin-top:4px;">Progress will be updated by your trainer.</div>' : ''}`;
+          })()}
         </div>
 
         ${milestones.length > 0 ? `
@@ -1582,9 +1685,7 @@ function renderSubscriptionTab(allSubs, kid, classes) {
         </div>
         <div class="info-row"><span class="info-row__key">Start Date</span><span class="info-row__val">${UI.formatDate(sub.startDate) || '—'}</span></div>
         <div class="info-row"><span class="info-row__key">Expired On</span><span class="info-row__val" style="color:var(--color-danger);font-weight:700;">${UI.formatDate(sub.expiryDate) || '—'}</span></div>
-        <button class="btn btn--primary btn--block btn--sm" style="margin-top:var(--space-3);" onclick="UI.toast('Renewal request sent. Our team will contact you shortly.','✅')">
-          🔄 Renew Now
-        </button>
+
       </div>`;
     }
 
@@ -1670,10 +1771,7 @@ function renderSubscriptionTab(allSubs, kid, classes) {
 
   return `
     ${pkgCards}
-    ${hasExpired ? `
-    <button class="btn btn--primary btn--block" onclick="UI.toast('Renewal request sent. Our team will contact you shortly.','✅')">
-      🔄 Request Renewal
-    </button>` : ''}
+
     <button class="btn btn--secondary btn--block" style="margin-top:var(--space-3);" onclick="Router.navigate('subscriptions')">
       📋 View All Packages
     </button>`;
@@ -1682,44 +1780,196 @@ function renderSubscriptionTab(allSubs, kid, classes) {
 // ============================
 // SCREEN: ASSESSMENT DETAIL
 // ============================
-Router.register('assessment-detail', async ({ kidId, assessId } = {}) => {
-  const assess = await DataService.getAssessment(kidId, assessId).catch(() => null);
+Router.register('assessment-detail', async function(params) {
+  var kidId    = (params || {}).kidId;
+  var assessId = (params || {}).assessId;
+  var assess   = await DataService.getAssessment(kidId, assessId).catch(function() { return null; });
   if (!assess) return;
 
-  const el = document.getElementById('screen-assessment-detail');
-  el.innerHTML = `
-    <div class="screen-inner">
-      ${UI.appBar(assess.title, true)}
-      <div class="scroll-content">
-        <div class="page-content">
-          <div style="text-align:center;margin-bottom:var(--space-5);">
-            <div class="assessment-score assessment-score--${UI.scoreType(assess.score)}" style="width:80px;height:80px;font-size:28px;margin:0 auto var(--space-3);">${assess.score}</div>
-            <h2 style="font-size:20px;font-weight:700;">${assess.title}</h2>
-            <div style="color:var(--color-text-secondary);font-size:13px;margin-top:4px;">${UI.formatDate(assess.date)} · ${assess.trainer}</div>
-            <div style="display:flex;justify-content:center;gap:8px;margin-top:8px;">${UI.badge(assess.grade, 'primary')}${UI.badge(assess.category, 'neutral')}</div>
-          </div>
+  var el = document.getElementById('screen-assessment-detail');
 
-          <div class="card" style="margin-bottom:var(--space-3);">
-            <div class="card-title" style="margin-bottom:var(--space-3);">Trainer Remarks</div>
-            <p style="color:var(--color-text-secondary);font-size:14px;line-height:1.7;font-style:italic;">"${assess.remarks}"</p>
-          </div>
+  // ── Level palette — designed for LIGHT theme ──────────────────────────────
+  // Text color on white/light surface  |  bg tint  |  border  |  bar fill
+  var LEVELS = ['Emerging', 'Developing', 'Proficient', 'Advanced'];
 
-          <div class="card">
-            <div class="card-title" style="margin-bottom:var(--space-4);">Skill Breakdown</div>
-            ${assess.skills.map(s => `
-              <div style="margin-bottom:var(--space-3);">
-                <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-                  <span style="font-size:14px;font-weight:500;">${s.name}</span>
-                  <span style="font-size:14px;font-weight:700;color:var(--color-primary);">${s.score}/100</span>
-                </div>
-                <div class="progress-track">
-                  <div class="progress-fill" style="width:${s.score}%;"></div>
-                </div>
-              </div>`).join('')}
-          </div>
-        </div>
-      </div>
-    </div>`;
+  // Foreground text color (strong, legible on white)
+  var LVL_TEXT  = { Emerging:'#B45309', Developing:'#1D4ED8', Proficient:'#065F46', Advanced:'#5B21B6' };
+  // Light pastel background tint
+  var LVL_TINT  = { Emerging:'#FEF9EC', Developing:'#EFF6FF', Proficient:'#ECFDF5', Advanced:'#F5F3FF' };
+  // Visible border
+  var LVL_BORDER= { Emerging:'#FCD34D', Developing:'#93C5FD', Proficient:'#6EE7B7', Advanced:'#C4B5FD' };
+  // Step-bar fill color
+  var LVL_BAR   = { Emerging:'#F59E0B', Developing:'#3B82F6', Proficient:'#10B981', Advanced:'#7C3AED' };
+  // Left accent stripe on card
+  var LVL_STRIPE= { Emerging:'#F59E0B', Developing:'#3B82F6', Proficient:'#10B981', Advanced:'#7C3AED' };
+  var LVL_ICON  = { Emerging:'🌱', Developing:'📈', Proficient:'⭐', Advanced:'🏆' };
+
+  // overallLevel is now computed in supabase.js from skills[].level majority vote
+  var ovLvl    = assess.overallLevel || 'Emerging';
+  var ovText   = LVL_TEXT[ovLvl];
+  var ovTint   = LVL_TINT[ovLvl];
+  var ovBorder = LVL_BORDER[ovLvl];
+  var ovBar    = LVL_BAR[ovLvl];
+  var ovIcon   = LVL_ICON[ovLvl];
+
+  // ── Date ─────────────────────────────────────────────────────────────────
+  var dateObj  = new Date((assess.date || '') + 'T00:00:00');
+  var dateLong = dateObj.toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+
+  // ── Step-bar: 4 segments, light inactive track ────────────────────────────
+  function buildStepBar(level) {
+    var barColor = LVL_BAR[level] || '#6C3AE8';
+    var idx = LEVELS.indexOf(level);
+    if (idx < 0) idx = 0;
+    var html = '<div style="display:flex;gap:5px;margin:10px 0 6px;">';
+    for (var i = 0; i < 4; i++) {
+      var on = (i <= idx);
+      html += '<div style="flex:1;height:10px;border-radius:99px;background:'
+        + (on ? barColor : '#E2E8F0')
+        + ';transition:background 0.2s;"></div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  // ── Axis labels ───────────────────────────────────────────────────────────
+  function buildAxisLabels(level) {
+    var barColor = LVL_BAR[level] || '#6C3AE8';
+    var idx = LEVELS.indexOf(level);
+    var html = '<div style="display:flex;margin-bottom:0;">';
+    for (var i = 0; i < 4; i++) {
+      var on = (i <= idx);
+      html += '<div style="flex:1;text-align:' + (i === 0 ? 'left' : i === 3 ? 'right' : 'center') + ';">'
+        + '<span style="font-size:9px;font-weight:' + (on ? '700' : '400') + ';color:' + (on ? barColor : '#CBD5E1') + ';">'
+        + LEVELS[i]
+        + '</span></div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  // ── Skill rows ────────────────────────────────────────────────────────────
+  var skills = assess.skills || [];
+  var skillsHTML = '';
+  for (var i = 0; i < skills.length; i++) {
+    var s       = skills[i];
+    var sLvl    = s.level || 'Emerging';
+    var sTxt    = LVL_TEXT[sLvl]   || '#374151';
+    var sTint   = LVL_TINT[sLvl]   || '#F9FAFB';
+    var sBorder = LVL_BORDER[sLvl] || '#E5E7EB';
+    var sStripe = LVL_STRIPE[sLvl] || '#6C3AE8';
+    var sIcon   = LVL_ICON[sLvl]   || '';
+    var isLast  = (i === skills.length - 1);
+
+    skillsHTML += '<div style="'
+      + 'background:' + sTint + ';'
+      + 'border:1px solid ' + sBorder + ';'
+      + 'border-left:4px solid ' + sStripe + ';'
+      + 'border-radius:var(--radius-md);'
+      + 'padding:12px 14px;'
+      + 'margin-bottom:' + (isLast ? '0' : '10px') + ';'
+      + '">';
+
+    // Row 1: skill name (left) + level pill (right)
+    skillsHTML += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:2px;">';
+    skillsHTML += '<span style="font-size:13px;font-weight:700;color:#1E1B4B;">' + s.name + '</span>';
+    skillsHTML += '<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;'
+      + 'padding:3px 10px;border-radius:99px;background:white;color:' + sTxt + ';'
+      + 'border:1.5px solid ' + sBorder + ';white-space:nowrap;">'
+      + sIcon + ' ' + sLvl
+      + '</span>';
+    skillsHTML += '</div>';
+
+    // Row 2: step bar
+    skillsHTML += buildStepBar(sLvl);
+
+    // Row 3: axis labels
+    skillsHTML += buildAxisLabels(sLvl);
+
+    // Row 4: trainer comment
+    if (s.comment) {
+      skillsHTML += '<div style="margin-top:10px;font-size:12px;color:#475569;line-height:1.6;'
+        + 'font-style:italic;padding:8px 12px;background:white;'
+        + 'border-radius:var(--radius-sm);border-left:2px solid ' + sStripe + ';">'
+        + '&ldquo;' + s.comment + '&rdquo;'
+        + '</div>';
+    }
+
+    skillsHTML += '</div>';
+  }
+
+  // ── Remarks card ─────────────────────────────────────────────────────────
+  var remarksHTML = '';
+  if (assess.remarks && assess.remarks !== 'Assessment completed.') {
+    remarksHTML = '<div class="card" style="margin-bottom:var(--space-3);">'
+      + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">'
+      + '<span style="font-size:18px;">💬</span>'
+      + '<span style="font-size:14px;font-weight:700;color:#1E1B4B;">Trainer Remarks</span>'
+      + '</div>'
+      + '<p style="color:#475569;font-size:13px;line-height:1.7;font-style:italic;margin:0;">&ldquo;' + assess.remarks + '&rdquo;</p>'
+      + '</div>';
+  }
+
+  // ── Hero card (overall level, date, title) ────────────────────────────────
+  var heroHTML = '<div style="'
+    + 'background:' + ovTint + ';'
+    + 'border:1.5px solid ' + ovBorder + ';'
+    + 'border-radius:var(--radius-xl);'
+    + 'padding:20px 20px 16px;'
+    + 'margin-bottom:var(--space-3);'
+    + 'text-align:center;'
+    + '">'
+
+    // Date row
+    + '<div style="font-size:11px;font-weight:600;color:#64748B;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;">'
+    + dateLong + (assess.time ? ' · ' + assess.time : '')
+    + '</div>'
+
+    // Title
+    + '<div style="font-size:17px;font-weight:800;color:#1E1B4B;margin-bottom:4px;">' + assess.title + '</div>'
+
+    // Course level name (from notes.level in DB)
+    + (assess.levelName
+        ? '<div style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;'
+          + 'color:#6366F1;background:#EEF2FF;padding:3px 10px;border-radius:99px;'
+          + 'border:1px solid #C7D2FE;margin-bottom:16px;">📚 ' + assess.levelName + '</div>'
+        : '<div style="margin-bottom:16px;"></div>')
+
+    // Big icon + overall skill level
+    + '<div style="display:inline-flex;align-items:center;gap:14px;background:white;border:1.5px solid ' + ovBorder + ';border-radius:var(--radius-lg);padding:12px 22px;">'
+
+    // Icon column
+    + '<span style="font-size:40px;line-height:1;">' + ovIcon + '</span>'
+
+    // Text column
+    + '<div style="text-align:left;">'
+    + '<div style="font-size:10px;font-weight:600;color:#94A3B8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">Overall Skill Level</div>'
+    + '<div style="font-size:22px;font-weight:900;color:' + ovText + ';letter-spacing:-0.3px;line-height:1.1;">' + ovLvl + '</div>'
+    + '<div style="font-size:11px;color:#64748B;margin-top:3px;font-weight:500;">Assessed on ' + assess.date + '</div>'
+    + '</div>'
+
+    + '</div>'
+    + '</div>';
+
+  // ── Section header ────────────────────────────────────────────────────────
+  var sectionTitle = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">'
+    + '<span style="font-size:14px;font-weight:700;color:#1E1B4B;">Skill Breakdown</span>'
+    + '<span style="font-size:11px;color:#94A3B8;margin-left:auto;">' + skills.length + ' criteria</span>'
+    + '</div>';
+
+  // ── Full HTML ─────────────────────────────────────────────────────────────
+  var html = '<div class="screen-inner">'
+    + UI.appBar('Assessment Detail', true)
+    + '<div class="scroll-content"><div class="page-content">'
+    + heroHTML
+    + remarksHTML
+    + '<div class="card">'
+    + sectionTitle
+    + (skillsHTML || '<div style="font-size:13px;color:#94A3B8;text-align:center;padding:16px;">No skill data available</div>')
+    + '</div>'
+    + '</div></div></div>';
+
+  el.innerHTML = html;
 });
 
 // ============================
@@ -1939,15 +2189,15 @@ Router.register('events', async () => {
       || '<div class="empty-state" style="padding:var(--space-8) var(--space-4);"><div class="empty-state__icon"><svg width="32" height="32" fill="none" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/><line x1="3" y1="10" x2="21" y2="10" stroke="currentColor" stroke-width="2"/></svg></div><div class="empty-state__title">No Events</div><div class="empty-state__body">Check back later for upcoming events and activities.</div></div>';
   };
 
-  // Show 'all' by default so past+upcoming both visible
-  const allHTML = renderEvents('all');
+  // Show 'upcoming' by default — first pill tab
+  const allHTML = renderEvents('upcoming');
 
   const el = document.getElementById('screen-events');
   el.innerHTML = `
     ${UI.appBar('Events', false, UI.notifBellBtn())}
     <div class="pill-header" id="events-pill-header">
-      <div class="pill active" data-filter="all" onclick="filterEvents('all',this)">All</div>
-      <div class="pill" data-filter="upcoming" onclick="filterEvents('upcoming',this)">Upcoming</div>
+      <div class="pill active" data-filter="upcoming" onclick="filterEvents('upcoming',this)">Upcoming</div>
+      <div class="pill" data-filter="all" onclick="filterEvents('all',this)">All</div>
       <div class="pill" data-filter="past" onclick="filterEvents('past',this)">Past</div>
     </div>
     <div class="scroll-content">
@@ -2228,8 +2478,7 @@ Router.register('subscriptions', async () => {
                 ❌ Package expired${s.expiryDate ? ' on ' + UI.formatDate(s.expiryDate) : ''} — please renew to continue classes.
               </div>
             </div>
-            <button class="btn btn--block btn--sm" style="margin-top:var(--space-2);background:white;color:var(--color-danger);font-weight:700;border:none;"
-              onclick="UI.toast('Renewal request sent. Our team will contact you shortly.','✅')">🔄 Request Renewal</button>
+
             ` : `
             <!-- Stats row: Sessions Left · Days Left · Price Paid -->
             <div class="sub-card__stats" style="gap:var(--space-4);">
@@ -2931,6 +3180,22 @@ function buildCourseRow(cls, attendance, allSubs, hasLevelIds) {
         <div style="font-size:10px;color:var(--color-text-muted);">Next Session</div>
       </div>
     </div>
+    ${(() => {
+      // cls.levelProgress = 0-100 from enrollments.level_progress
+      const pct = (cls.levelProgress > 0) ? cls.levelProgress : null;
+      if (pct === null) return '';
+      const pctColor = pct >= 80 ? 'var(--color-success)' : pct >= 40 ? 'var(--color-primary)' : 'var(--color-warning)';
+      return `
+      <div style="margin-top:var(--space-2);padding-top:var(--space-2);border-top:1px solid var(--color-border-light);">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+          <span style="font-size:11px;font-weight:600;color:var(--color-text-muted);">Level Progress</span>
+          <span style="font-size:12px;font-weight:800;color:${pctColor};">${pct}%</span>
+        </div>
+        <div style="height:5px;background:var(--color-border);border-radius:99px;overflow:hidden;">
+          <div style="height:100%;width:${pct}%;background:${pctColor};border-radius:99px;transition:width 0.4s ease;"></div>
+        </div>
+      </div>`;
+    })()}
   </div>`;
 }
 
