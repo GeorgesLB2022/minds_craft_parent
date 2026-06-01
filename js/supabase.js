@@ -514,14 +514,83 @@ const DataService = {
   // ── ASSESSMENTS ─────────────────────────────────────────────
   async getAssessments(kidId) {
     const token = AuthService.getToken();
+
+    // ── Raw fetch so we can log the exact HTTP status / error body ───────────
+    const _rawFetch = async (path) => {
+      const url = `${SUPABASE_URL}/rest/v1/${path}`;
+      const r   = await fetch(url, { headers: sbHeaders(token), cache: 'no-store' });
+      const body = await r.json().catch(() => null);
+      console.log(`[getAssessments] GET ${path} → HTTP ${r.status}`, body);
+      if (!r.ok) throw new Error(`HTTP ${r.status}: ${JSON.stringify(body)}`);
+      return body;
+    };
+
     try {
-      const rows = await sbGet(
-        `assessments?student_id=eq.${kidId}&select=id,student_id,score,notes,created_at&order=created_at.desc&limit=20`,
-        token
-      );
-      return rows.map(r => this._mapAssessment(r));
+      // Attempt 1: full schema with assessed_at
+      // No created_at column — use assessed_at only
+      let rows = await _rawFetch(
+        `assessments?student_id=eq.${kidId}&select=id,student_id,skill_key,skill_label,category,score,assessed_at,notes&order=assessed_at.desc.nullslast&limit=100`
+      ).catch(e => { console.warn('[getAssessments] attempt1 failed:', e.message); return null; });
+
+      if (!rows) {
+        console.warn('[getAssessments] all queries failed');
+        return [];
+      }
+
+      if (!rows.length) {
+        console.log('[getAssessments] table accessible but 0 rows for kidId:', kidId);
+        return [];
+      }
+
+      // ── Group rows into sessions ──────────────────────────────────────────
+      // Strategy: group by full assessed_at timestamp (second precision).
+      // If all rows share the exact same timestamp (common when trainer saves
+      // multiple sessions at once), fall back to grouping by category/course
+      // so each assessment session is shown separately.
+
+      const sessionMap = new Map();
+      rows.forEach(r => {
+        const ts  = r.assessed_at || 'unknown';
+        // Primary key: full timestamp up to seconds (19 chars "YYYY-MM-DDTHH:MM:SS")
+        const key = ts.substring(0, 19);
+        if (!sessionMap.has(key)) sessionMap.set(key, { ts, rows: [] });
+        sessionMap.get(key).rows.push(r);
+      });
+
+      // Check if all rows ended up in a single bucket (same timestamp)
+      // → trainer entered all sessions with identical assessed_at
+      // → secondary-split by category field so each course = 1 session
+      let sessionBuckets = [...sessionMap.values()];
+      if (sessionBuckets.length === 1 && sessionBuckets[0].rows.length > 5) {
+        // Re-group by category (each assessment session belongs to a different course/category)
+        const catMap = new Map();
+        sessionBuckets[0].rows.forEach(r => {
+          // Try to get course name from notes JSON for this row
+          let catKey = r.category || 'unknown';
+          try {
+            const hist = Array.isArray(r.notes) ? r.notes : JSON.parse(r.notes || '[]');
+            if (hist.length && hist[0].course_name && hist[0].course_name !== '—') {
+              catKey = hist[0].course_name;
+            }
+          } catch { /* ignore */ }
+          if (!catMap.has(catKey)) catMap.set(catKey, { ts: r.assessed_at || 'unknown', rows: [] });
+          catMap.get(catKey).rows.push(r);
+        });
+        // Only use category-split if it produced more than 1 group
+        if (catMap.size > 1) {
+          sessionBuckets = [...catMap.values()];
+        }
+      }
+
+      // Sort newest → oldest, map each group to one session card
+      const sessions = sessionBuckets
+        .sort((a, b) => (a.ts > b.ts ? -1 : a.ts < b.ts ? 1 : 0))
+        .map(({ ts, rows: domainRows }) => this._mapAssessmentSession(ts, domainRows));
+
+      console.log('[getAssessments] ✅ sessions:', sessions.length, sessions.map(s => `${s.date}|${s.title}|${s.score}`));
+      return sessions;
     } catch (e) {
-      console.error('[DataService] getAssessments error:', e);
+      console.error('[DataService] getAssessments unexpected error:', e);
       return [];
     }
   },
@@ -529,11 +598,22 @@ const DataService = {
   async getAssessment(kidId, assessId) {
     const token = AuthService.getToken();
     try {
-      const rows = await sbGet(
-        `assessments?id=eq.${assessId}&student_id=eq.${kidId}&select=id,student_id,score,notes,created_at`,
+      // Fetch the specific row by id to get its assessed_at timestamp
+      const byId = await sbGet(
+        `assessments?id=eq.${assessId}&student_id=eq.${kidId}&select=id,student_id,skill_key,skill_label,category,score,assessed_at,notes`,
         token
-      );
-      return rows && rows[0] ? this._mapAssessment(rows[0]) : null;
+      ).catch(() => []);
+      if (byId && byId.length) {
+        const ts = byId[0].assessed_at;
+        // Fetch all sibling domain rows sharing the same assessed_at
+        const siblings = ts ? await sbGet(
+          `assessments?student_id=eq.${kidId}&assessed_at=eq.${encodeURIComponent(ts)}&select=id,student_id,skill_key,skill_label,category,score,assessed_at,notes`,
+          token
+        ).catch(() => byId) : byId;
+        const domainRows = (siblings && siblings.length) ? siblings : byId;
+        return this._mapAssessmentSession(ts || 'unknown', domainRows);
+      }
+      return null;
     } catch (e) { return null; }
   },
 
@@ -541,9 +621,9 @@ const DataService = {
   async getKidClasses(kidId) {
     const token = AuthService.getToken();
     try {
-      // Get enrollments for this student — include schedule_slot (the student's specific slot)
+      // Get enrollments for this student — include schedule_slot and level_progress
       const enrollments = await sbGet(
-        `enrollments?student_id=eq.${kidId}&status=eq.active&select=id,student_id,level_id,status,enrolled_at,schedule_slot&limit=10`,
+        `enrollments?student_id=eq.${kidId}&status=eq.active&select=id,student_id,level_id,status,enrolled_at,schedule_slot,level_progress&limit=10`,
         token
       );
       if (!enrollments || enrollments.length === 0) return [];
@@ -551,10 +631,12 @@ const DataService = {
       const levelIds = enrollments.map(e => e.level_id).filter(Boolean);
       if (levelIds.length === 0) return [];
 
-      // Build a map: level_id → schedule_slot (e.g. "Thursday 17:30:00-19:00:00")
-      const slotByLevel = {};
+      // Build maps: level_id → schedule_slot, level_id → level_progress
+      const slotByLevel     = {};
+      const progressByLevel = {};
       enrollments.forEach(e => {
-        if (e.level_id && e.schedule_slot) slotByLevel[e.level_id] = e.schedule_slot;
+        if (e.level_id && e.schedule_slot)    slotByLevel[e.level_id]     = e.schedule_slot;
+        if (e.level_id != null)               progressByLevel[e.level_id] = e.level_progress ?? 0;
       });
 
       const levels = await sbGet(
@@ -601,7 +683,10 @@ const DataService = {
       // Fetch ALL trainers per level via trainer_sessions junction table
       const trainersByLevel = await this._fetchTrainersByLevel(levelIds, token);
 
-      return levels.map(l => this._mapLevel(l, courseMap[l.course_id], trainersByLevel[l.id] || []));
+      return levels.map(l => ({
+        ...this._mapLevel(l, courseMap[l.course_id], trainersByLevel[l.id] || []),
+        levelProgress: progressByLevel[l.id] ?? 0   // 0-100 from enrollments.level_progress
+      }));
     } catch (e) {
       console.error('[DataService] getKidClasses error:', e);
       return [];
@@ -1104,9 +1189,9 @@ const DataService = {
   async getLevelInfo(kidId) {
     const token = AuthService.getToken();
     try {
-      // Get active enrollment to find current level
+      // Get ALL active enrollments — we aggregate level_progress across all enrolled courses
       const enrollments = await sbGet(
-        `enrollments?student_id=eq.${kidId}&status=eq.active&select=id,student_id,level_id,enrolled_at&order=enrolled_at.desc&limit=1`,
+        `enrollments?student_id=eq.${kidId}&status=eq.active&select=id,student_id,level_id,enrolled_at,level_progress&order=enrolled_at.desc&limit=10`,
         token
       ).catch(() => []);
 
@@ -1127,26 +1212,32 @@ const DataService = {
         token
       ).catch(() => []);
 
-      const totalLevels = allLevels.length || 1;
+      const totalLevels  = allLevels.length || 1;
       const currentOrder = level.order_num || 1;
-      const pct = Math.round((currentOrder / totalLevels) * 100);
+
+      // Real progress from DB — use level_progress from the enrollment row (0-100).
+      // If not set (0 or null), fall back to position-based estimate so it's never blank.
+      const rawProgress  = enrollment.level_progress ?? 0;
+      const levelPct     = rawProgress > 0
+        ? rawProgress
+        : Math.min(100, Math.round((currentOrder / totalLevels) * 100));
 
       // Find next level
       const nextLevel = allLevels.find(l => l.order_num === currentOrder + 1);
 
-      // Get attendance to estimate progress within level
-      const attRecords = await this.getAttendance(kidId);
-      const presentCount = attRecords.filter(r => r.status === 'present').length;
-      const levelPct = Math.min(100, Math.round((presentCount / Math.max(allLevels.length * 4, 8)) * 100));
+      // Build per-enrollment progress map for all enrolled courses
+      const progressByEnroll = {};
+      enrollments.forEach(e => { progressByEnroll[e.level_id] = e.level_progress ?? 0; });
 
       return {
-        current:     level.name || `Level ${currentOrder}`,
-        currentCode: (level.name || 'L').substring(0,2).toUpperCase(),
-        number:      currentOrder,
-        total:       totalLevels,
-        pct:         levelPct,
-        nextLevel:   nextLevel?.name || 'Advanced Level',
-        milestones:  allLevels.map(l => ({
+        current:         level.name || `Level ${currentOrder}`,
+        currentCode:     (level.name || 'L').substring(0,2).toUpperCase(),
+        number:          currentOrder,
+        total:           totalLevels,
+        pct:             levelPct,          // real DB value (or fallback)
+        nextLevel:       nextLevel?.name || 'Advanced Level',
+        progressByLevel: progressByEnroll,  // { level_id: 0-100 } for all enrollments
+        milestones:      allLevels.map(l => ({
           id:    l.id,
           title: l.name,
           done:  l.order_num < currentOrder,
@@ -1481,26 +1572,158 @@ const DataService = {
     } catch { return '—'; }
   },
 
-  _mapAssessment(r) {
-    const score = r.score || 0;
+  // Map a group of domain rows (same assessed_at) into one session object
+  _mapAssessmentSession(timestamp, domainRows) {
+    // Score: 1-4 scale → convert to a 0-100 display score
+    // 1=Emerging(25) 2=Developing(50) 3=Proficient(75) 4=Advanced(100)
+    const levelMap = { 1: 'Emerging', 2: 'Developing', 3: 'Proficient', 4: 'Advanced' };
+    const scoreToDisplay = s => Math.round((Math.min(Math.max(s || 0), 4) / 4) * 100);
+
+    // Average score across all domains (for the header ring)
+    const validScores = domainRows.map(r => r.score || 0).filter(s => s > 0);
+    const avgRaw  = validScores.length ? validScores.reduce((a, b) => a + b, 0) / validScores.length : 0;
+    const avgDisplay = Math.round(scoreToDisplay(avgRaw));
+
+    // Grade from average display score
     let grade = 'C';
-    if (score >= 90) grade = 'A';
-    else if (score >= 80) grade = 'B+';
-    else if (score >= 70) grade = 'B';
-    else if (score >= 60) grade = 'C+';
+    if (avgDisplay >= 90) grade = 'A';
+    else if (avgDisplay >= 75) grade = 'B+';
+    else if (avgDisplay >= 60) grade = 'B';
+    else if (avgDisplay >= 50) grade = 'C+';
+
+    // Date string and time string from timestamp
+    const dateStr = (timestamp && timestamp !== 'unknown') ? timestamp.split('T')[0] : _todayLocalStr();
+    const timeStr = (timestamp && timestamp.includes('T')) ? timestamp.split('T')[1].substring(0,5) : '';
+
+    // ── Parse notes — dual-model support ─────────────────────────────────────
+    // NEW model (admin progress.js v2): notes is a plain object {}
+    //   { course_name, comment, level, assessed_at, … }
+    //   Each DB row = 1 domain entry for exactly 1 session.
+    // LEGACY model: notes is an array [] of history entries
+    //   [{ assessed_at, course_name, comment, … }, …]
+    //   5 permanent rows per student, history stacked in the array.
+    function _parseNotes(raw) {
+      if (!raw) return { obj: null, arr: [] };
+      let parsed = raw;
+      if (typeof raw === 'string') {
+        try { parsed = JSON.parse(raw); } catch { return { obj: null, arr: [] }; }
+      }
+      if (Array.isArray(parsed)) return { obj: null, arr: parsed };
+      if (parsed && typeof parsed === 'object') return { obj: parsed, arr: [] };
+      return { obj: null, arr: [] };
+    }
+
+    // Course name + level_name — try all domain rows, prefer new-model object first
+    // notes JSON structure (new admin model):
+    //   { course_name, course_id, level_name, level_id, level, comment }
+    //   level_name = levels.name  e.g. "Level 6 — Wednesday 16h"  ← THE course level to display
+    //   level      = skill proficiency string: "emerging" / "developing" / "proficient" / "advanced"
+    let courseName   = '—';
+    let levelName    = '';   // levels.name — e.g. "Level 6 — Wednesday 16h" (from notes.level_name)
+    let trainerNote  = '—';
+    for (let di = 0; di < domainRows.length; di++) {
+      const { obj, arr } = _parseNotes(domainRows[di]?.notes);
+      // New model: notes.course_name + notes.level_name
+      if (obj && obj.course_name && obj.course_name !== '—') {
+        courseName = obj.course_name;
+        if (obj.level_name) levelName = obj.level_name;  // ← use level_name, NOT level
+        break;
+      }
+      // Legacy model: notes[0].course_name
+      if (arr.length > 0 && arr[0].course_name && arr[0].course_name !== '—') {
+        courseName = arr[0].course_name;
+        if (arr[0].level_name) levelName = arr[0].level_name;
+        break;
+      }
+    }
+    // Final fallback: category field on the row
+    if (courseName === '—' && domainRows[0]?.category) {
+      courseName = domainRows[0].category;
+    }
+
+    // Build skills array — one entry per domain row
+    const SKILL_ORDER = ['technical','logical','creativity','communication','collaboration'];
+    const sorted = [...domainRows].sort((a, b) => {
+      const ia = SKILL_ORDER.indexOf(a.skill_key); const ib = SKILL_ORDER.indexOf(b.skill_key);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+
+    const skills = sorted.map(r => {
+      let comment = '';
+      try {
+        const { obj, arr } = _parseNotes(r.notes);
+        if (obj) {
+          // NEW model: comment lives directly on the object
+          comment = obj.comment || '';
+        } else {
+          // LEGACY model: find the entry matching this session's timestamp
+          const match = arr.find(h => h.assessed_at === timestamp) || arr[0];
+          comment = match?.comment || '';
+        }
+      } catch { comment = ''; }
+
+      // Skill proficiency level — prefer notes.level string (new model), normalise capitalisation
+      // notes.level can be lowercase: 'emerging' / 'developing' / 'proficient' / 'advanced'
+      const PROF_LEVELS = ['Emerging','Developing','Proficient','Advanced'];
+      let level = levelMap[r.score] || 'Emerging';
+      try {
+        const { obj, arr } = _parseNotes(r.notes);
+        const raw = obj ? (obj.level || '') : (arr[0]?.level || '');
+        if (raw) {
+          // Normalise: capitalise first letter for consistent matching
+          const cap = raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
+          if (PROF_LEVELS.includes(cap)) level = cap;
+        }
+      } catch { /* keep score-derived level */ }
+
+      const displayScore = scoreToDisplay(r.score);
+      return {
+        name:    r.skill_label || r.skill_key || 'Skill',
+        score:   displayScore,
+        level:   level,
+        comment: comment
+      };
+    });
+
+    // ── Overall session skill level — majority vote on skills[].level strings ──
+    // This avoids using the numeric score (which can be wrong if all DB scores = 4
+    // but the trainer actually set mixed levels via notes.level).
+    const PROF_ORDER = ['Emerging','Developing','Proficient','Advanced'];
+    const levelCounts = { Emerging:0, Developing:0, Proficient:0, Advanced:0 };
+    skills.forEach(s => { if (levelCounts[s.level] !== undefined) levelCounts[s.level]++; });
+    const totalSkills = skills.length || 1;
+    // Weighted average position (0-3) then map back to label
+    const weightedPos = PROF_ORDER.reduce((sum, l, i) => sum + levelCounts[l] * i, 0) / totalSkills;
+    const overallLevelStr = PROF_ORDER[Math.round(weightedPos)] || 'Emerging';
+    // Keep avgDisplay only for internal grade calc — not exposed in UI as "/100"
+
+    // Global remarks: collect non-empty comments across all domains
+    const remarks = skills.map(s => s.comment).filter(Boolean).join(' · ')
+      || 'Assessment completed.';
+
+    // Use the first domain row id as the session id (for navigation)
+    const id = domainRows[0]?.id || timestamp;
 
     return {
-      id:          r.id,
-      date:        r.created_at ? r.created_at.split('T')[0] : _todayLocalStr(),
-      title:       'Assessment',
-      trainer:     '—',
-      category:    'Skills Evaluation',
-      score:       score,
-      maxScore:    100,
-      grade:       grade,
-      remarks:     r.notes || 'Keep up the excellent work!',
-      skills:      []
+      id:           id,
+      date:         dateStr,
+      time:         timeStr,
+      title:        courseName !== '—' ? `${courseName} Assessment` : 'Skills Assessment',
+      levelName:    levelName || '',   // ← levels.name e.g. "Level 6 — Wednesday 16h" (from notes.level_name)
+      overallLevel: overallLevelStr,   // ← computed from skills[].level majority vote
+      trainer:      trainerNote,
+      category:     courseName !== '—' ? courseName : 'Skills Evaluation',
+      score:        avgDisplay,        // kept for internal grade only — not shown in UI
+      maxScore:     100,
+      grade:        grade,
+      remarks:      remarks,
+      skills:       skills
     };
+  },
+
+  // Legacy single-row mapper kept for backwards compat
+  _mapAssessment(r) {
+    return this._mapAssessmentSession(r.assessed_at || r.created_at, [r]);
   },
 
   _mapAllocation(a, pkg, kidName) {
