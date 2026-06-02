@@ -506,9 +506,8 @@ const DataService = {
     const total   = records.length;
     const present = records.filter(r => r.status === 'present').length;
     const absent  = records.filter(r => r.status === 'absent').length;
-    const late    = records.filter(r => r.status === 'late').length;
     const rate    = total > 0 ? Math.round((present / total) * 100) : 0;
-    return { total, present, absent, late, rate };
+    return { total, present, absent, rate };
   },
 
   // ── ASSESSMENTS ─────────────────────────────────────────────
@@ -761,9 +760,9 @@ const DataService = {
   async getAllTrainers() {
     const token = AuthService.getToken();
     try {
-      // Fetch trainers with all columns
+      // Fetch trainers with all columns — only published trainers (isPublished = true)
       const rows = await sbGet(
-        `trainers?select=id,full_name,phone,email,status,created_at,title,start_year,start_date,description,avatar_url,rating,priority&order=priority.asc.nullslast&limit=50`,
+        `trainers?is_published=eq.true&select=id,full_name,phone,email,status,created_at,title,start_year,start_date,description,avatar_url,rating,priority&order=priority.asc.nullslast&limit=50`,
         token
       ).catch(() => []);
       if (!rows || !rows.length) return [];
@@ -834,7 +833,7 @@ const DataService = {
     const token = AuthService.getToken();
     try {
       const rows = await sbGet(
-        `trainers?id=eq.${trainerId}&select=id,full_name,phone,email,status,created_at,title,start_year,start_date,description,avatar_url,rating`,
+        `trainers?id=eq.${trainerId}&is_published=eq.true&select=id,full_name,phone,email,status,created_at,title,start_year,start_date,description,avatar_url,rating`,
         token
       );
       if (!rows || !rows[0]) return null;
@@ -1435,14 +1434,16 @@ const DataService = {
     try {
       // ── Primary: trainer_assignments junction table ──────────────────────────────
       // Fetch all assignments for the given level IDs, embedding trainer name
+      // Only include trainers where is_published = true
       const assignments = await sbGet(
-        `trainer_assignments?level_id=in.(${levelIds.join(',')})&select=level_id,trainer_id,trainers(id,full_name)`,
+        `trainer_assignments?level_id=in.(${levelIds.join(',')})&select=level_id,trainer_id,trainers(id,full_name,is_published)`,
         token
       ).catch(() => []);
 
       if (Array.isArray(assignments) && assignments.length > 0) {
         assignments.forEach(row => {
-          if (row.trainers) add(row.level_id, row.trainers);
+          // Skip unpublished trainers
+          if (row.trainers && row.trainers.is_published !== false) add(row.level_id, row.trainers);
         });
         console.log('[Trainers] trainer_assignments:', assignments.length, 'rows →',
           Object.fromEntries(Object.entries(map).map(([k,v])=>[k, v.map(t=>t.full_name)])));
@@ -1460,7 +1461,7 @@ const DataService = {
         const fbIds = [...new Set((levelRows || []).map(l => l.trainer_id).filter(Boolean))];
         if (fbIds.length > 0) {
           const trainerRows = await sbGet(
-            `trainers?id=in.(${fbIds.join(',')})&select=id,full_name`,
+            `trainers?id=in.(${fbIds.join(',')})&is_published=eq.true&select=id,full_name`,
             token
           ).catch(() => []);
           const tmap = {};
@@ -1574,6 +1575,62 @@ const DataService = {
 
   // Map a group of domain rows (same assessed_at) into one session object
   _mapAssessmentSession(timestamp, domainRows) {
+    // ── Detect course type ────────────────────────────────────────────────────
+    // category = 'speedmath' → SpeedMath session (1 row, score in notes.speedmath_score)
+    // category = 'domain'    → Robotics & STEM session (1–5 rows, level in notes.level)
+    const isSpeedMath = domainRows.some(r => r.category === 'speedmath' || r.skill_key === 'speedmath_score');
+
+    // ── SpeedMath branch ──────────────────────────────────────────────────────
+    if (isSpeedMath) {
+      const row   = domainRows[0];
+      const dateStr = (timestamp && timestamp !== 'unknown') ? timestamp.split('T')[0] : _todayLocalStr();
+      const timeStr = (timestamp && timestamp.includes('T')) ? timestamp.split('T')[1].substring(0,5) : '';
+
+      let notes = {};
+      try {
+        const raw = row.notes;
+        notes = (typeof raw === 'string') ? JSON.parse(raw) : (raw || {});
+        if (Array.isArray(notes)) notes = notes[0] || {};
+      } catch { notes = {}; }
+
+      const smScore    = typeof notes.speedmath_score === 'number' ? notes.speedmath_score : 0;
+      const courseName = notes.course_name || 'Speed Math';
+      const levelName  = notes.level_name  || '';
+      const comment    = notes.comment     || '';
+
+      // Grade band  0–39 Beginner | 40–59 Needs Practice | 60–79 Average | 80–99 Good | 100–120 Excellent
+      let smBand = 'Beginner';
+      if      (smScore >= 100) smBand = 'Excellent';
+      else if (smScore >= 80)  smBand = 'Good';
+      else if (smScore >= 60)  smBand = 'Average';
+      else if (smScore >= 40)  smBand = 'Needs Practice';
+
+      // Map band to a display colour (reuse palette keys via overallLevel)
+      const BAND_LEVEL = { Beginner:'Emerging', 'Needs Practice':'Developing', Average:'Developing', Good:'Proficient', Excellent:'Advanced' };
+      const BAND_ICON  = { Beginner:'🔢', 'Needs Practice':'📝', Average:'📊', Good:'🌟', Excellent:'🏆' };
+
+      return {
+        type:          'speedmath',
+        id:            row.id || timestamp,
+        date:          dateStr,
+        time:          timeStr,
+        title:         courseName + ' Assessment',
+        levelName:     levelName,
+        overallLevel:  BAND_LEVEL[smBand] || 'Emerging',   // for card colour only
+        speedmathScore: smScore,
+        speedmathBand:  smBand,
+        speedmathIcon:  BAND_ICON[smBand] || '🔢',
+        comment:       comment,
+        remarks:       comment || 'Assessment completed.',
+        skills:        [],     // no domain skills for SpeedMath
+        score:         smScore,
+        maxScore:      120,
+        grade:         smBand,
+        category:      'speedmath',
+      };
+    }
+
+    // ── Robotics & STEM branch ────────────────────────────────────────────────
     // Score: 1-4 scale → convert to a 0-100 display score
     // 1=Emerging(25) 2=Developing(50) 3=Proficient(75) 4=Advanced(100)
     const levelMap = { 1: 'Emerging', 2: 'Developing', 3: 'Proficient', 4: 'Advanced' };
@@ -1742,7 +1799,7 @@ const DataService = {
 
     // Sessions — calculate from attendance records within the package period
     // sessTotal = number of scheduled sessions in the package window (based on duration)
-    // sessUsed  = attendance records (present + late) within the window
+    // sessUsed  = attendance records (present) within the window
     // sessLeft  = sessTotal - sessUsed
     const durMonthsForSess = pkg?.duration_months ?? 1;
     // Approximate total sessions: 4 sessions/week × 4 weeks × duration_months
