@@ -1,5 +1,5 @@
-// SW v20250524u — fix: overallLevel from skills majority vote; level_name from notes.level_name
-const SW_VERSION = '20250524u';
+// SW v20250524x — filter trainers by is_published=true everywhere
+const SW_VERSION = '20250524x';
 
 self.addEventListener('install', () => {
   console.log('[SW] Installing version', SW_VERSION);
