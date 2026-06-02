@@ -211,8 +211,7 @@ const UI = {
   attendanceBadge(status) {
     const map = {
       present: ['Present', 'success'],
-      absent:  ['Absent',  'danger'],
-      late:    ['Late',    'warning']
+      absent:  ['Absent',  'danger']
     };
     const [label, type] = map[status] || ['Unknown', 'neutral'];
     return this.badge(label, type);
