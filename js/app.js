@@ -914,7 +914,7 @@ Router.register('kid-detail', async ({ kidId } = {}) => {
     DataService.getLevelInfo(id).catch(() => null),
     DataService.getAttendance(id).catch(() => [])
   ]);
-  const attSummary = attSummaryRaw || { rate: 0, present: 0, absent: 0, late: 0, total: 0 };
+  const attSummary = attSummaryRaw || { rate: 0, present: 0, absent: 0, total: 0 };
   const assessments = assessmentsRaw || [];
   const attendance = attendanceRaw || [];
 
@@ -1270,9 +1270,8 @@ function renderAttendanceTab(attendance, classes, allSubs) {
     const matchedSub = findAllocForCourse(cls, allSubs || []);
 
     // Stats over ALL records
-    const present    = clsAtt.filter(r => r.status === 'present' || r.status === 'late').length;
+    const present    = clsAtt.filter(r => r.status === 'present').length;
     const absent     = clsAtt.filter(r => r.status === 'absent').length;
-    const late       = clsAtt.filter(r => r.status === 'late').length;
     const total      = clsAtt.length;
     const rate       = total > 0 ? Math.round((present / total) * 100) : 0;
 
@@ -1309,11 +1308,10 @@ function renderAttendanceTab(attendance, classes, allSubs) {
       </div>`).join('');
 
     const statsHtml = `
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center;margin-bottom:${total > 0 ? 'var(--space-3)' : '0'};">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center;margin-bottom:${total > 0 ? 'var(--space-3)' : '0'};">
         <div><div style="font-size:15px;font-weight:800;color:${total > 0 ? (rate >= 80 ? 'var(--color-success)' : 'var(--color-warning)') : 'var(--color-text-muted)'};">${total > 0 ? rate + '%' : '—'}</div><div style="font-size:10px;color:var(--color-text-muted);">Rate</div></div>
         <div><div style="font-size:15px;font-weight:800;color:var(--color-success);">${present}</div><div style="font-size:10px;color:var(--color-text-muted);">Present</div></div>
         <div><div style="font-size:15px;font-weight:800;color:var(--color-danger);">${absent}</div><div style="font-size:10px;color:var(--color-text-muted);">Absent</div></div>
-        <div><div style="font-size:15px;font-weight:800;color:var(--color-warning);">${late}</div><div style="font-size:10px;color:var(--color-text-muted);">Late</div></div>
       </div>`;
 
     return `
@@ -1334,9 +1332,8 @@ function renderAttendanceTab(attendance, classes, allSubs) {
 
 // Helper: render a flat list of attendance rows (used when no classes context)
 function _renderAttRows(attRows, title) {
-  const present = attRows.filter(r => r.status === 'present' || r.status === 'late').length;
+  const present = attRows.filter(r => r.status === 'present').length;
   const absent  = attRows.filter(r => r.status === 'absent').length;
-  const late    = attRows.filter(r => r.status === 'late').length;
   const total   = attRows.length;
   const rate    = total > 0 ? Math.round((present / total) * 100) : 0;
   const rows    = attRows.map(r => `
@@ -1354,11 +1351,10 @@ function _renderAttRows(attRows, title) {
   return `
     <div class="card" style="margin-bottom:var(--space-4);">
       ${title ? `<div class="card-header" style="margin-bottom:var(--space-3);"><span class="card-title">${title}</span></div>` : ''}
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center;margin-bottom:var(--space-3);">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center;margin-bottom:var(--space-3);">
         <div><div style="font-size:15px;font-weight:800;color:${rate>=80?'var(--color-success)':'var(--color-warning)'};">${rate}%</div><div style="font-size:10px;color:var(--color-text-muted);">Rate</div></div>
         <div><div style="font-size:15px;font-weight:800;color:var(--color-success);">${present}</div><div style="font-size:10px;color:var(--color-text-muted);">Present</div></div>
         <div><div style="font-size:15px;font-weight:800;color:var(--color-danger);">${absent}</div><div style="font-size:10px;color:var(--color-text-muted);">Absent</div></div>
-        <div><div style="font-size:15px;font-weight:800;color:var(--color-warning);">${late}</div><div style="font-size:10px;color:var(--color-text-muted);">Late</div></div>
       </div>
       ${rows || `<div style="font-size:13px;color:var(--color-text-muted);text-align:center;padding:var(--space-3);">No attendance records yet</div>`}
     </div>`;
@@ -1393,16 +1389,35 @@ function renderAssessmentsTab(assessments, kid) {
     + assessments.length + ' Assessment' + (assessments.length > 1 ? 's' : '') + ' — newest first'
     + '</div>';
 
+  // ── SpeedMath band palette ────────────────────────────────────────────────
+  var SM_TEXT   = { Beginner:'#92400E', 'Needs Practice':'#1D4ED8', Average:'#0369A1', Good:'#065F46', Excellent:'#5B21B6' };
+  var SM_TINT   = { Beginner:'#FEF9EC', 'Needs Practice':'#EFF6FF', Average:'#F0F9FF', Good:'#ECFDF5', Excellent:'#F5F3FF' };
+  var SM_BORDER = { Beginner:'#FCD34D', 'Needs Practice':'#93C5FD', Average:'#7DD3FC', Good:'#6EE7B7', Excellent:'#C4B5FD' };
+  var SM_BAR    = { Beginner:'#F59E0B', 'Needs Practice':'#3B82F6', Average:'#0EA5E9', Good:'#10B981', Excellent:'#7C3AED' };
+  var SM_BANDS  = ['Beginner','Needs Practice','Average','Good','Excellent'];
+
   // ── Cards ─────────────────────────────────────────────────────────────────
   var cards = assessments.map(function(a) {
-    // Use overallLevel computed in supabase.js from skills[].level majority vote
-    // (NOT from numeric score which is always based on DB score 1-4 and can be wrong)
-    var lvl    = a.overallLevel || 'Emerging';
-    var txt    = LVL_TEXT[lvl];
-    var tint   = LVL_TINT[lvl];
-    var border = LVL_BORDER[lvl];
-    var bar    = LVL_BAR[lvl];
-    var emoji  = LVL_EMOJI[lvl];
+    var isSpeedMath = (a.type === 'speedmath');
+
+    // Colour palette — SpeedMath uses band palette, Robotics uses level palette
+    var lvl, txt, tint, border, bar, emoji;
+    if (isSpeedMath) {
+      var band = a.speedmathBand || 'Beginner';
+      txt    = SM_TEXT[band]   || '#374151';
+      tint   = SM_TINT[band]   || '#F9FAFB';
+      border = SM_BORDER[band] || '#E5E7EB';
+      bar    = SM_BAR[band]    || '#6B7280';
+      emoji  = a.speedmathIcon || '🔢';
+      lvl    = band;
+    } else {
+      lvl    = a.overallLevel || 'Emerging';
+      txt    = LVL_TEXT[lvl];
+      tint   = LVL_TINT[lvl];
+      border = LVL_BORDER[lvl];
+      bar    = LVL_BAR[lvl];
+      emoji  = LVL_EMOJI[lvl];
+    }
 
     // Date parts
     var dateObj = new Date((a.date || '') + 'T00:00:00');
@@ -1411,26 +1426,54 @@ function renderAssessmentsTab(assessments, kid) {
     var yr   = dateObj.getFullYear();
     var timeDisplay = a.time ? a.time : '';
 
-    // Mini step bar (4 segments, light inactive track)
-    var stepIdx = LEVELS.indexOf(lvl);
-    var miniBar = '<div style="display:flex;gap:3px;margin:6px 0 4px;">';
-    for (var i = 0; i < 4; i++) {
-      miniBar += '<div style="flex:1;height:5px;border-radius:99px;background:'
-        + (i <= stepIdx ? bar : '#E2E8F0') + ';"></div>';
+    // Right-side badge: SpeedMath = score + band, Robotics = level badge
+    var scoreLabel;
+    if (isSpeedMath) {
+      scoreLabel = '<div style="text-align:right;line-height:1.2;">'
+        + '<div style="font-size:20px;font-weight:900;color:' + txt + ';">' + a.speedmathScore + '</div>'
+        + '<div style="font-size:9px;font-weight:700;color:' + txt + ';opacity:0.7;">/ 120</div>'
+        + '</div>';
+    } else {
+      scoreLabel = '<span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:700;padding:3px 8px;border-radius:99px;background:' + tint + ';color:' + txt + ';border:1px solid ' + border + ';white-space:nowrap;">'
+        + emoji + ' ' + lvl + '</span>';
     }
-    miniBar += '</div>';
 
-    // Per-skill dots (each dot = color of that domain's level)
-    var dots = (a.skills || []).map(function(s) {
-      var sl = s.level || 'Emerging';
-      var dc = LVL_BAR[sl] || '#94A3B8';
-      return '<span title="' + s.name + ': ' + sl + '" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:' + dc + ';border:1.5px solid white;box-shadow:0 0 0 1px ' + dc + '55;"></span>';
-    }).join('');
-
-    // Level badge (replaces /100 score — score scale is internal only)
-    var scoreLabel = '<span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:700;padding:3px 8px;border-radius:99px;background:' + tint + ';color:' + txt + ';border:1px solid ' + border + ';white-space:nowrap;">'
-      + emoji + ' ' + lvl
-      + '</span>';
+    // Bottom section: SpeedMath = band pill + score bar, Robotics = step bar + skill dots
+    var bottomHTML;
+    if (isSpeedMath) {
+      // Score bar: smScore / 120
+      var smPct = Math.round(Math.min((a.speedmathScore || 0) / 120, 1) * 100);
+      bottomHTML = ''
+        // Band pill
+        + '<div style="display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:99px;background:' + tint + ';border:1px solid ' + border + ';margin-bottom:5px;">'
+        + '<span style="font-size:11px;">' + emoji + '</span>'
+        + '<span style="font-size:11px;font-weight:700;color:' + txt + ';">' + lvl + '</span>'
+        + '</div>'
+        // Score bar
+        + '<div style="background:#E2E8F0;border-radius:99px;height:5px;overflow:hidden;">'
+        + '<div style="width:' + smPct + '%;height:100%;background:' + bar + ';border-radius:99px;transition:width 0.4s;"></div>'
+        + '</div>';
+    } else {
+      // Mini step bar
+      var stepIdx = LEVELS.indexOf(lvl);
+      var miniBar = '<div style="display:flex;gap:3px;margin:5px 0 4px;">';
+      for (var i = 0; i < 4; i++) {
+        miniBar += '<div style="flex:1;height:5px;border-radius:99px;background:'
+          + (i <= stepIdx ? bar : '#E2E8F0') + ';"></div>';
+      }
+      miniBar += '</div>';
+      // Per-skill dots
+      var dots = (a.skills || []).map(function(s) {
+        var sl = s.level || 'Emerging';
+        var dc = LVL_BAR[sl] || '#94A3B8';
+        return '<span title="' + s.name + ': ' + sl + '" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:' + dc + ';border:1.5px solid white;box-shadow:0 0 0 1px ' + dc + '55;"></span>';
+      }).join('');
+      bottomHTML = miniBar
+        + '<div style="display:flex;align-items:center;gap:5px;margin-top:2px;">'
+        + '<span style="font-size:10px;color:#94A3B8;margin-right:1px;">Skills</span>'
+        + dots
+        + '</div>';
+    }
 
     return '<div onclick="Router.navigate(\'assessment-detail\',{kidId:\'' + kid.id + '\',assessId:\'' + a.id + '\'})"'
       + ' style="background:white;border:1.5px solid ' + border + ';border-left:4px solid ' + bar + ';border-radius:var(--radius-lg);padding:12px 14px 10px;margin-bottom:10px;cursor:pointer;transition:box-shadow 0.15s,transform 0.1s;display:flex;align-items:stretch;gap:12px;box-shadow:0 1px 4px rgba(0,0,0,0.06);"'
@@ -1447,27 +1490,19 @@ function renderAssessmentsTab(assessments, kid) {
       // ── Main content ──
       + '<div style="flex:1;min-width:0;">'
 
-      // Title + level badge
+      // Title + badge/score
       + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:2px;">'
       + '<div style="font-size:14px;font-weight:700;color:#1E1B4B;line-height:1.3;">' + a.title + '</div>'
-      + '<div style="flex-shrink:0;text-align:right;">' + scoreLabel + '</div>'
+      + '<div style="flex-shrink:0;">' + scoreLabel + '</div>'
       + '</div>'
 
-      // Course level name (from notes.level in DB)
+      // Course level name
       + (a.levelName
-          ? '<div style="font-size:11px;font-weight:600;color:#6366F1;margin-bottom:4px;">'
-            + '📚 ' + a.levelName
-            + '</div>'
+          ? '<div style="font-size:11px;font-weight:600;color:#6366F1;margin-bottom:4px;">📚 ' + a.levelName + '</div>'
           : '')
 
-      // Mini step bar (level shown via scoreLabel badge top-right — no duplicate badge here)
-      + miniBar
-
-      // Skill dots
-      + '<div style="display:flex;align-items:center;gap:5px;margin-top:2px;">'
-      + '<span style="font-size:10px;color:#94A3B8;margin-right:1px;">Skills</span>'
-      + dots
-      + '</div>'
+      // Bottom section (type-specific)
+      + bottomHTML
 
       + '</div>'
 
@@ -1787,6 +1822,122 @@ Router.register('assessment-detail', async function(params) {
   if (!assess) return;
 
   var el = document.getElementById('screen-assessment-detail');
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ── SPEED MATH detail page ────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════════
+  if (assess.type === 'speedmath') {
+    var smScore = assess.speedmathScore || 0;
+    var smBand  = assess.speedmathBand  || 'Beginner';
+    var smIcon  = assess.speedmathIcon  || '🔢';
+
+    // SpeedMath colour palette
+    var SM_TEXT   = { Beginner:'#92400E', 'Needs Practice':'#1D4ED8', Average:'#0369A1', Good:'#065F46', Excellent:'#5B21B6' };
+    var SM_TINT   = { Beginner:'#FEF9EC', 'Needs Practice':'#EFF6FF', Average:'#F0F9FF', Good:'#ECFDF5', Excellent:'#F5F3FF' };
+    var SM_BORDER = { Beginner:'#FCD34D', 'Needs Practice':'#93C5FD', Average:'#7DD3FC', Good:'#6EE7B7', Excellent:'#C4B5FD' };
+    var SM_BAR    = { Beginner:'#F59E0B', 'Needs Practice':'#3B82F6', Average:'#0EA5E9', Good:'#10B981', Excellent:'#7C3AED' };
+    var SM_BANDS  = ['Beginner', 'Needs Practice', 'Average', 'Good', 'Excellent'];
+
+    var smTxt    = SM_TEXT[smBand]   || '#374151';
+    var smTint   = SM_TINT[smBand]   || '#F9FAFB';
+    var smBorder = SM_BORDER[smBand] || '#E5E7EB';
+    var smBar    = SM_BAR[smBand]    || '#6B7280';
+
+    var smDateObj  = new Date((assess.date || '') + 'T00:00:00');
+    var smDateLong = smDateObj.toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+    var smPct      = Math.round(Math.min(smScore / 120, 1) * 100);
+    var smBandIdx  = SM_BANDS.indexOf(smBand);
+
+    // Build 5-segment band bar
+    var smBandBar = '<div style="display:flex;gap:5px;margin:14px 0 6px;">';
+    for (var bi = 0; bi < 5; bi++) {
+      smBandBar += '<div style="flex:1;height:10px;border-radius:99px;background:'
+        + (bi <= smBandIdx ? smBar : '#E2E8F0') + ';transition:background 0.2s;"></div>';
+    }
+    smBandBar += '</div>';
+
+    // Band axis labels
+    var smBandLabels = '<div style="display:flex;margin-bottom:0;">';
+    var shortBands = ['Beg.', 'Needs Pr.', 'Avg', 'Good', 'Excellent'];
+    for (var bl = 0; bl < 5; bl++) {
+      var on = (bl <= smBandIdx);
+      smBandLabels += '<div style="flex:1;text-align:' + (bl === 0 ? 'left' : bl === 4 ? 'right' : 'center') + ';">'
+        + '<span style="font-size:9px;font-weight:' + (on ? '700' : '400') + ';color:' + (on ? smBar : '#CBD5E1') + ';">'
+        + shortBands[bl] + '</span></div>';
+    }
+    smBandLabels += '</div>';
+
+    var smHTML = '<div class="screen-inner">'
+      + UI.appBar('Assessment Detail', true)
+      + '<div class="scroll-content"><div class="page-content">'
+
+      // ── Hero card ──
+      + '<div style="background:' + smTint + ';border:1.5px solid ' + smBorder + ';border-radius:var(--radius-xl);padding:20px 20px 16px;margin-bottom:var(--space-3);text-align:center;">'
+      + '<div style="font-size:11px;font-weight:600;color:#64748B;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;">'
+      + smDateLong + (assess.time ? ' · ' + assess.time : '')
+      + '</div>'
+      + '<div style="font-size:17px;font-weight:800;color:#1E1B4B;margin-bottom:4px;">' + assess.title + '</div>'
+      + (assess.levelName
+          ? '<div style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:#6366F1;background:#EEF2FF;padding:3px 10px;border-radius:99px;border:1px solid #C7D2FE;margin-bottom:16px;">📚 ' + assess.levelName + '</div>'
+          : '<div style="margin-bottom:16px;"></div>')
+
+      // Big score + band
+      + '<div style="display:inline-flex;align-items:center;gap:20px;background:white;border:1.5px solid ' + smBorder + ';border-radius:var(--radius-lg);padding:16px 28px;">'
+      + '<div style="text-align:center;">'
+      + '<div style="font-size:11px;font-weight:600;color:#94A3B8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Score</div>'
+      + '<div style="font-size:48px;font-weight:900;color:' + smTxt + ';line-height:1;">' + smScore + '</div>'
+      + '<div style="font-size:11px;color:#94A3B8;margin-top:2px;">out of 120</div>'
+      + '</div>'
+      + '<div style="width:1px;height:60px;background:' + smBorder + ';"></div>'
+      + '<div style="text-align:left;">'
+      + '<div style="font-size:11px;font-weight:600;color:#94A3B8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Band</div>'
+      + '<div style="font-size:22px;line-height:1.1;">' + smIcon + '</div>'
+      + '<div style="font-size:16px;font-weight:900;color:' + smTxt + ';margin-top:2px;">' + smBand + '</div>'
+      + '</div>'
+      + '</div>'
+      + '</div>'
+
+      // ── Band progress card ──
+      + '<div class="card" style="margin-bottom:var(--space-3);">'
+      + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">'
+      + '<span style="font-size:16px;">📊</span>'
+      + '<span style="font-size:14px;font-weight:700;color:#1E1B4B;">Performance Band</span>'
+      + '</div>'
+      + smBandBar
+      + smBandLabels
+      + '</div>'
+
+      // ── Score bar card ──
+      + '<div class="card" style="margin-bottom:var(--space-3);">'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">'
+      + '<span style="font-size:13px;font-weight:600;color:#1E1B4B;">Score out of 120</span>'
+      + '<span style="font-size:13px;font-weight:800;color:' + smTxt + ';">' + smScore + ' / 120</span>'
+      + '</div>'
+      + '<div style="background:#E2E8F0;border-radius:99px;height:12px;overflow:hidden;">'
+      + '<div style="width:' + smPct + '%;height:100%;background:' + smBar + ';border-radius:99px;transition:width 0.4s;"></div>'
+      + '</div>'
+      + '<div style="display:flex;justify-content:space-between;margin-top:4px;">'
+      + '<span style="font-size:10px;color:#94A3B8;">0</span>'
+      + '<span style="font-size:10px;color:#94A3B8;">120</span>'
+      + '</div>'
+      + '</div>'
+
+      // ── Trainer comment ──
+      + (assess.comment
+          ? '<div class="card" style="margin-bottom:var(--space-3);">'
+            + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">'
+            + '<span style="font-size:18px;">💬</span>'
+            + '<span style="font-size:14px;font-weight:700;color:#1E1B4B;">Trainer Comment</span>'
+            + '</div>'
+            + '<p style="color:#475569;font-size:13px;line-height:1.7;font-style:italic;margin:0;">&ldquo;' + assess.comment + '&rdquo;</p>'
+            + '</div>'
+          : '')
+
+      + '</div></div></div>';
+
+    el.innerHTML = smHTML;
+    return;   // ← stop here, don't fall through to Robotics rendering
+  }
 
   // ── Level palette — designed for LIGHT theme ──────────────────────────────
   // Text color on white/light surface  |  bg tint  |  border  |  bar fill
