@@ -1,5 +1,5 @@
-// SW v20250524x — filter trainers by is_published=true everywhere
-const SW_VERSION = '20250524x';
+// SW v20250525a — fix: remove guardian_id (col not in DB); keep parent_id-only guard
+const SW_VERSION = '20250525a';
 
 self.addEventListener('install', () => {
   console.log('[SW] Installing version', SW_VERSION);
