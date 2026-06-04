@@ -14,12 +14,40 @@ const Router = {
     this.screens[screenId] = renderFn;
   },
 
+  // Screens that are allowed without a valid session
+  publicScreens: ['splash', 'login', 'forgot-password', 'reset-password', 'reset-success'],
+
   // Navigate to a screen
   async navigate(screenId, params = {}, addToHistory = true) {
     if (!this.screens[screenId]) {
       console.warn('[Router] Unknown screen:', screenId);
       return;
     }
+
+    // ── Global auth guard ─────────────────────────────────────────────────
+    // For every protected screen, verify the session is valid before rendering.
+    // If expired → try a silent token refresh first.
+    // If refresh fails (or no session at all) → redirect to login immediately.
+    if (!this.publicScreens.includes(screenId)) {
+      const session = (typeof AuthService !== 'undefined') ? AuthService.getSession() : null;
+
+      if (!session || !session.token) {
+        // No session at all → login
+        console.warn('[Router] No session — redirecting to login from:', screenId);
+        return this._goLogin();
+      }
+
+      if (Date.now() > (session.expiresAt || 0)) {
+        // Token expired → try silent refresh
+        console.log('[Router] Token expired for screen "' + screenId + '" — refreshing…');
+        const refreshed = await AuthService.refreshSession().catch(() => false);
+        if (!refreshed) {
+          console.warn('[Router] Refresh failed — redirecting to login');
+          return this._goLogin();
+        }
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────
 
     // Store history
     if (addToHistory && this.currentScreen) {
@@ -85,6 +113,25 @@ const Router = {
     } else {
       this.navigate('home', {}, false);
     }
+  },
+
+  // Force logout and go to login screen
+  _goLogin() {
+    if (typeof AuthService !== 'undefined') AuthService.logout();
+    // Clear history so Back can't return to a protected screen
+    this.history = [];
+    this.currentScreen = 'login';
+    this.currentParams = {};
+    // Hide all screens, show login
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    const loginEl = document.getElementById('screen-login');
+    if (loginEl) {
+      loginEl.classList.add('active');
+      loginEl.innerHTML = '';   // will be rendered by the login register fn
+    }
+    NavManager.updateActive('login');
+    // Trigger the login screen render
+    if (this.screens['login']) this.screens['login']({});
   }
 };
 
