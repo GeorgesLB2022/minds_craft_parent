@@ -626,20 +626,7 @@ async function doForgotPwd() {
 // ============================
 Router.register('home', async () => {
 
-  // ── Token guard: if expired, refresh BEFORE any DB call ──────────────
-  // This fixes the "all zeros" bug on re-open when the access_token has
-  // expired but the refresh_token is still valid.
-  const _session = AuthService.getSession();
-  if (_session && Date.now() > (_session.expiresAt || 0)) {
-    console.log('[Home] Token expired — refreshing before render…');
-    const refreshed = await AuthService.refreshSession().catch(() => false);
-    if (!refreshed) {
-      console.warn('[Home] Refresh failed — redirecting to login');
-      await Router.navigate('login');
-      return;
-    }
-  }
-
+  // Token guard is now handled globally in Router.navigate() — no need here.
   // ── Load data with automatic retry on auth failure ────────────────────
   const _loadHomeData = async () => {
     const results = await Promise.allSettled([
@@ -1667,9 +1654,6 @@ function renderSubscriptionTab(allSubs, kid, classes) {
           </div>
         </div>
       </div>
-      <button class="btn btn--primary btn--block" onclick="UI.toast('Request sent for ${kidName}. Our team will contact you shortly.','✅')">
-        📋 Request a Package
-      </button>
       <button class="btn btn--secondary btn--block" style="margin-top:var(--space-3);" onclick="Router.navigate('subscriptions')">
         View Available Packages
       </button>`;
