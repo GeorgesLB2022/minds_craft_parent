@@ -65,6 +65,33 @@ async function sbGet(path, token) {
     headers: sbHeaders(token),
     cache: 'no-store'
   });
+
+  // 401 / 403 → token is invalid or expired server-side
+  // Attempt one silent refresh; if it fails, force login immediately
+  if (r.status === 401 || r.status === 403) {
+    console.warn('[sbGet] HTTP', r.status, '— attempting token refresh for:', path);
+    const refreshed = await AuthService.refreshSession().catch(() => false);
+    if (!refreshed) {
+      console.warn('[sbGet] Refresh failed — forcing login redirect');
+      if (typeof Router !== 'undefined' && Router._goLogin) Router._goLogin();
+      throw new Error('Session expired. Please log in again.');
+    }
+    // Retry once with the new token
+    const newToken = AuthService.getToken();
+    const r2 = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+      headers: sbHeaders(newToken),
+      cache: 'no-store'
+    });
+    if (!r2.ok) {
+      const err2 = await r2.json().catch(() => ({ message: r2.statusText }));
+      if (r2.status === 401 || r2.status === 403) {
+        if (typeof Router !== 'undefined' && Router._goLogin) Router._goLogin();
+      }
+      throw new Error(err2.message || `HTTP ${r2.status}`);
+    }
+    return r2.json();
+  }
+
   if (!r.ok) {
     const err = await r.json().catch(() => ({ message: r.statusText }));
     throw new Error(err.message || `HTTP ${r.status}`);
@@ -424,27 +451,22 @@ const DataService = {
     if (!token || !userId) return [];
 
     try {
-      // Strategy 1: parent_id column
-      let rows = await sbGet(
+      // Only strategy: parent_id column — scoped to this parent
+      // guardian_id does not exist in the DB schema.
+      // The old unscoped fallback (user_type=eq.student) has been removed
+      // because it returned ALL students when Supabase RLS was permissive.
+      const rows = await sbGet(
         `users?parent_id=eq.${userId}&user_type=eq.student&select=id,email,full_name,phone,avatar_url,avatar_color,status,user_type,notes,created_at`,
         token
       ).catch(() => null);
-      if (rows?.length) { console.log('[getKids] strategy1 →', rows.map(r=>r.full_name)); return rows.map(u => this._mapKid(u)); }
+      if (rows?.length) {
+        console.log('[getKids] parent_id strategy →', rows.map(r => r.full_name));
+        return rows.map(u => this._mapKid(u));
+      }
 
-      // Strategy 2: guardian_id column
-      rows = await sbGet(
-        `users?guardian_id=eq.${userId}&select=id,email,full_name,phone,avatar_url,avatar_color,status,user_type,notes,created_at`,
-        token
-      ).catch(() => null);
-      if (rows?.length) { console.log('[getKids] strategy2 →', rows.map(r=>r.full_name)); return rows.map(u => this._mapKid(u)); }
+      console.log('[getKids] No kids found for parent:', userId);
+      return [];
 
-      // Strategy 3: RLS-filtered all students
-      rows = await sbGet(
-        `users?user_type=eq.student&select=id,email,full_name,phone,avatar_url,avatar_color,status,user_type,notes,created_at`,
-        token
-      ).catch(() => []);
-      console.log('[getKids] strategy3 →', (rows||[]).map(r=>r.full_name));
-      return (rows || []).map(u => this._mapKid(u));
     } catch (e) {
       console.error('[DataService] getKids error:', e);
       return [];
@@ -452,12 +474,40 @@ const DataService = {
   },
 
   async getKid(id) {
-    const token = AuthService.getToken();
-    const rows = await sbGet(
-      `users?id=eq.${id}&select=id,email,full_name,phone,avatar_url,avatar_color,status,user_type,notes,created_at`,
-      token
-    );
-    return rows && rows[0] ? this._mapKid(rows[0]) : null;
+    const token  = AuthService.getToken();
+    const userId = AuthService.getUserId();
+    if (!token || !userId || !id) return null;
+
+    try {
+      // Scope fetch to this parent — id + parent_id must both match
+      // This prevents a parent from accessing another parent's kid by guessing the UUID
+      let rows = await sbGet(
+        `users?id=eq.${id}&parent_id=eq.${userId}&select=id,email,full_name,phone,avatar_url,avatar_color,status,user_type,notes,created_at`,
+        token
+      ).catch(() => null);
+
+      if (rows?.length) return this._mapKid(rows[0]);
+
+      // parent_id returned nothing — could mean parent_id isn't set in DB yet.
+      // Cross-check: fetch by id only BUT verify the kid appears in this parent's
+      // allowed list (getKids uses parent_id filter, so this is still safe).
+      console.warn('[getKid] parent_id-scoped fetch empty for kid:', id, '— cross-checking allowed list');
+      const allowed = await this.getKids().catch(() => []);
+      if (allowed.some(k => k.id === id)) {
+        rows = await sbGet(
+          `users?id=eq.${id}&select=id,email,full_name,phone,avatar_url,avatar_color,status,user_type,notes,created_at`,
+          token
+        ).catch(() => null);
+        return rows?.[0] ? this._mapKid(rows[0]) : null;
+      }
+
+      // Kid not in this parent's allowed list — refuse
+      console.error('[getKid] SECURITY: kid', id, 'not linked to parent', userId, '— access denied');
+      return null;
+    } catch (e) {
+      console.error('[DataService] getKid error:', e);
+      return null;
+    }
   },
 
   // ── UPDATE KID AVATAR ─────────────────────────────────────────────────────
