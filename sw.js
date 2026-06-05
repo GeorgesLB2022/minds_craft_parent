@@ -1,5 +1,5 @@
-// SW v20250525a — fix: remove guardian_id (col not in DB); keep parent_id-only guard
-const SW_VERSION = '20250525a';
+// SW v20250525b — remove Next Session widget from class-detail page
+const SW_VERSION = '20250525b';
 
 self.addEventListener('install', () => {
   console.log('[SW] Installing version', SW_VERSION);
