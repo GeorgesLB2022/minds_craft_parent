@@ -2252,22 +2252,7 @@ Router.register('class-detail', async ({ classId } = {}) => {
             <p style="color:var(--color-text-secondary);font-size:14px;line-height:1.7;">${c.description}</p>
           </div>
 
-          <div class="card">
-            <div class="card-header">
-              <span class="card-title">Next Session</span>
-              ${UI.badge('Upcoming', 'info')}
-            </div>
-            <div style="display:flex;align-items:center;gap:var(--space-3);">
-              <div style="background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));color:white;border-radius:var(--radius-lg);padding:var(--space-3) var(--space-4);text-align:center;min-width:60px;">
-                <div style="font-size:11px;opacity:0.8;">${c.nextSessionDay?.substring(0,3).toUpperCase()}</div>
-                <div style="font-size:24px;font-weight:800;">${new Date(c.nextSession.replace(/-/g,'/')).getDate()}</div>
-              </div>
-              <div>
-                <div style="font-weight:600;font-size:15px;">${UI.formatDate(c.nextSession)}</div>
-                <div style="color:var(--color-text-secondary);font-size:13px;">at ${UI.formatTime(c.time)} · ${c.duration}</div>
-              </div>
-            </div>
-          </div>
+
         </div>
       </div>
     </div>`;
